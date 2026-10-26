@@ -738,12 +738,33 @@ export default function Home() {
                 {finalMap && (
                   <div className="mt-6 p-5 rounded-sm bg-[#171a21] border border-[#a4d007]/60 flex flex-col md:flex-row items-center justify-between gap-4">
                     <div>
-                      <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider">
-                        MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})
+                      <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider flex items-center gap-2">
+                        <span>MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})</span>
+                        <a
+                          href={`/api/match-config?map=${finalMap.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[10px] px-2 py-0.5 rounded-sm bg-[#1b2838] border border-[#66c0f4]/50 text-[#66c0f4] hover:bg-[#66c0f4] hover:text-[#171a21] transition"
+                        >
+                          Ver JSON Servidor
+                        </a>
                       </div>
-                      <p className="text-xs text-[#8f98a0] mt-1">
-                        Configuracion lista en /api/match-config?map={finalMap.id}. Ingresa con un clic o registra el marcador.
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                        <code className="text-[11px] px-2 py-0.5 rounded-sm bg-[#111318] border border-[#2a475e] text-[#c7d5e0] font-mono">
+                          .load https://www.aimvesports.com/api/match-config?map={finalMap.id}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(
+                              `.load https://www.aimvesports.com/api/match-config?map=${finalMap.id}`
+                            );
+                          }}
+                          className="text-[10px] px-2 py-0.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-bold transition cursor-pointer"
+                        >
+                          Copiar Comando CS2
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
