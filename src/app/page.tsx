@@ -24,6 +24,16 @@ interface MatchItem {
   winner: string | null;
 }
 
+interface LeaderboardPlayer {
+  id: number;
+  nickname: string;
+  elo: number;
+  wins: number;
+  losses: number;
+  country: string;
+  season_prize: string;
+}
+
 export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
@@ -35,9 +45,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Estados de la Sala de Veto 5v5
+  // Estados de la Sala de Veto 5v5, Partidas y Leaderboard
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [matches, setMatches] = useState<MatchItem[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
   const [savingMatch, setSavingMatch] = useState(false);
 
   // Cargar resultados de partidas desde Supabase
@@ -53,8 +64,22 @@ export default function Home() {
     }
   };
 
+  // Cargar Leaderboard real ordenado por ELO desde Supabase
+  const fetchLeaderboard = async () => {
+    const { data } = await supabase
+      .from("leaderboard_players")
+      .select("*")
+      .order("elo", { ascending: false })
+      .limit(10);
+
+    if (data) {
+      setLeaderboard(data);
+    }
+  };
+
   useEffect(() => {
     fetchMatches();
+    fetchLeaderboard();
   }, []);
 
   // Lógica del Veto de Mapas (Pick & Ban)
@@ -71,13 +96,14 @@ export default function Home() {
     setBannedMaps([]);
   };
 
-  // Registrar resultado simulado o iniciar partida en base de datos
+  // Registrar resultado de partida y actualizar ELO en vivo en Supabase
   const handleSimulateFinish = async () => {
     if (!finalMap) return;
     setSavingMatch(true);
 
-    const roundsLoser = Math.floor(Math.random() * 10) + 2; // Entre 2 y 11 rondas
+    const roundsLoser = Math.floor(Math.random() * 10) + 2;
     const alphaWins = Math.random() > 0.5;
+    const winnerTeam = alphaWins ? "Equipo Alpha (YonathanDHC)" : "Equipo Omega (Viper_CCS)";
 
     await supabase.from("matches").insert([
       {
@@ -88,11 +114,33 @@ export default function Home() {
         score_a: alphaWins ? 13 : roundsLoser,
         score_b: alphaWins ? roundsLoser : 13,
         status: "FINALIZADA",
-        winner: alphaWins ? "Equipo Alpha" : "Equipo Omega",
+        winner: winnerTeam,
       },
     ]);
 
+    // Sumar +25 ELO al capitán ganador y restar -15 ELO al perdedor en leaderboard_players
+    const captainWinner = alphaWins ? "YonathanDHC" : "Viper_CCS";
+    const captainLoser = alphaWins ? "Viper_CCS" : "YonathanDHC";
+
+    const winnerRow = leaderboard.find((p) => p.nickname === captainWinner);
+    const loserRow = leaderboard.find((p) => p.nickname === captainLoser);
+
+    if (winnerRow) {
+      await supabase
+        .from("leaderboard_players")
+        .update({ elo: winnerRow.elo + 25, wins: winnerRow.wins + 1 })
+        .eq("id", winnerRow.id);
+    }
+
+    if (loserRow) {
+      await supabase
+        .from("leaderboard_players")
+        .update({ elo: Math.max(100, loserRow.elo - 15), losses: loserRow.losses + 1 })
+        .eq("id", loserRow.id);
+    }
+
     await fetchMatches();
+    await fetchLeaderboard();
     setSavingMatch(false);
   };
 
@@ -246,7 +294,6 @@ export default function Home() {
           </div>
 
           <div className="p-6 rounded-sm bg-[#1b2838]/90 border border-[#2a475e] shadow-xl">
-            {/* Cabecera de Equipos enfrentados */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center mb-8 pb-6 border-b border-[#2a475e]/60">
               <div className="flex items-center justify-between md:justify-start gap-4">
                 <div className="w-12 h-12 rounded-sm bg-[#66c0f4]/15 border border-[#66c0f4] flex items-center justify-center font-black text-[#66c0f4]">
@@ -254,7 +301,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-white font-black text-lg">EQUIPO ALPHA</div>
-                  <div className="text-xs text-[#66c0f4] font-bold">5/5 Jugadores Listos • ELO Promedio 2,240</div>
+                  <div className="text-xs text-[#66c0f4] font-bold">Capitán: YonathanDHC • 5/5 Listos</div>
                 </div>
               </div>
 
@@ -273,7 +320,7 @@ export default function Home() {
               <div className="flex items-center justify-between md:justify-end gap-4">
                 <div className="text-left md:text-right">
                   <div className="text-white font-black text-lg">EQUIPO OMEGA</div>
-                  <div className="text-xs text-[#FF5500] font-bold">5/5 Jugadores Listos • ELO Promedio 2,215</div>
+                  <div className="text-xs text-[#FF5500] font-bold">Capitán: Viper_CCS • 5/5 Listos</div>
                 </div>
                 <div className="w-12 h-12 rounded-sm bg-[#FF5500]/15 border border-[#FF5500] flex items-center justify-center font-black text-[#FF5500]">
                   TT
@@ -333,7 +380,7 @@ export default function Home() {
                     MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})
                   </div>
                   <p className="text-xs text-[#8f98a0] mt-1">
-                    El servidor de Miami ya cargó el mapa. Ingresa con un clic sin abrir consola o registra el resultado en vivo.
+                    El servidor de Miami ya cargó el mapa. Ingresa con un clic sin abrir consola o registra el resultado para actualizar el ELO.
                   </p>
                 </div>
 
@@ -349,7 +396,7 @@ export default function Home() {
                     disabled={savingMatch}
                     className="w-full sm:w-auto px-5 py-3 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-black text-xs uppercase tracking-wider transition cursor-pointer"
                   >
-                    {savingMatch ? "GUARDANDO MARCADOR..." : "FINALIZAR Y SUBIR RESULTADO"}
+                    {savingMatch ? "ACTUALIZANDO ELO..." : "FINALIZAR Y SUBIR RESULTADO"}
                   </button>
                 </div>
               </div>
@@ -357,12 +404,12 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECCIÓN 2: RESULTADOS DE PARTIDAS EN VIVO (CONECTADO A SUPABASE) */}
+        {/* SECCIÓN 2: RESULTADOS DE PARTIDAS EN VIVO */}
         <section id="resultados" className="mt-24 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#a4d007] text-xs font-black uppercase tracking-widest mb-1">
-                 HISTORIAL OFICIAL • BASE DE DATOS EN TIEMPO REAL
+                HISTORIAL OFICIAL • BASE DE DATOS EN TIEMPO REAL
               </div>
               <h2 className="text-3xl font-black text-white">
                 RESULTADOS DE PARTIDAS RECIENTES
@@ -410,12 +457,12 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECCIÓN 3: LEADERBOARD MENSUAL & PREMIOS */}
+        {/* SECCIÓN 3: LEADERBOARD MENSUAL EN TIEMPO REAL DESDE SUPABASE */}
         <section id="premios" className="mt-24 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#FF5500] text-xs font-black uppercase tracking-widest mb-1">
-                TEMPORADA FUNDADORES • PREMIOS REALES
+                TEMPORADA FUNDADORES • RANKING EN VIVO
               </div>
               <h2 className="text-3xl font-black text-white">
                 LEADERBOARD TOP ELO & RECOMPENSAS
@@ -433,38 +480,46 @@ export default function Home() {
                   <th className="py-3.5 px-5">Posición</th>
                   <th className="py-3.5 px-5">Jugador</th>
                   <th className="py-3.5 px-5">Rango ELO</th>
+                  <th className="py-3.5 px-5">Partidas (W/L)</th>
                   <th className="py-3.5 px-5">Winrate</th>
                   <th className="py-3.5 px-5 text-right">Premio de Temporada</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2a475e]/40">
-                <tr className="bg-gradient-to-r from-[#FF5500]/10 to-transparent">
-                  <td className="py-4 px-5 font-black text-[#FF5500]">#1 🏆</td>
-                  <td className="py-4 px-5 font-bold text-white">Vacante Fundador #1</td>
-                  <td className="py-4 px-5 text-[#66c0f4] font-mono font-bold">2,450 ELO</td>
-                  <td className="py-4 px-5 text-[#a4d007] font-bold">68%</td>
-                  <td className="py-4 px-5 text-right font-bold text-[#FF5500]">
-                    ★ Cuchillo CS2 o $150 USDT
-                  </td>
-                </tr>
-                <tr>
-                  <td className="py-4 px-5 font-black text-[#c7d5e0]">#2 🥈</td>
-                  <td className="py-4 px-5 font-bold text-white">Vacante Fundador #2</td>
-                  <td className="py-4 px-5 text-[#66c0f4] font-mono font-bold">2,310 ELO</td>
-                  <td className="py-4 px-5 text-[#a4d007] font-bold">64%</td>
-                  <td className="py-4 px-5 text-right font-bold text-white">
-                    AK-47 | Asiimov + $50 USDT
-                  </td>
-                </tr>
-                <tr>
-                  <td className="py-4 px-5 font-black text-[#8f98a0]">#3 🥉</td>
-                  <td className="py-4 px-5 font-bold text-white">Vacante Fundador #3</td>
-                  <td className="py-4 px-5 text-[#66c0f4] font-mono font-bold">2,190 ELO</td>
-                  <td className="py-4 px-5 text-[#a4d007] font-bold">61%</td>
-                  <td className="py-4 px-5 text-right font-bold text-white">
-                    M4A4 | Neo-Noir + Pase VIP
-                  </td>
-                </tr>
+                {leaderboard.map((player, index) => {
+                  const totalGames = player.wins + player.losses;
+                  const winrate = totalGames > 0 ? Math.round((player.wins / totalGames) * 100) : 0;
+
+                  return (
+                    <tr
+                      key={player.id}
+                      className={index === 0 ? "bg-gradient-to-r from-[#FF5500]/15 to-transparent" : ""}
+                    >
+                      <td className={`py-4 px-5 font-black ${index === 0 ? "text-[#FF5500]" : index === 1 ? "text-[#c7d5e0]" : "text-[#8f98a0]"}`}>
+                        #{index + 1} {index === 0 ? "🏆" : index === 1 ? "🥈" : index === 2 ? "🥉" : ""}
+                      </td>
+                      <td className="py-4 px-5 font-bold text-white">
+                        {player.nickname}{" "}
+                        <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-[#171a21] border border-[#2a475e] text-[#66c0f4]">
+                          {player.country}
+                        </span>
+                      </td>
+                      <td className="py-4 px-5 text-[#66c0f4] font-mono font-bold">
+                        {player.elo.toLocaleString()} ELO
+                      </td>
+                      <td className="py-4 px-5 text-xs font-mono text-[#c7d5e0]">
+                        <span className="text-[#a4d007] font-bold">{player.wins}W</span> -{" "}
+                        <span className="text-red-400">{player.losses}L</span>
+                      </td>
+                      <td className="py-4 px-5 text-[#a4d007] font-bold">
+                        {winrate}%
+                      </td>
+                      <td className={`py-4 px-5 text-right font-bold ${index === 0 ? "text-[#FF5500]" : "text-white"}`}>
+                        {player.season_prize}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
