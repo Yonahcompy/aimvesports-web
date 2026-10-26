@@ -13,20 +13,127 @@ const CS2_MAPS = [
   { id: "de_vertigo", name: "Vertigo", tag: "Combate corto" },
 ];
 
+const PRACTICE_MODES = [
+  {
+    id: "aim_botz",
+    name: "Aim Botz & Recoil Master",
+    desc: "Calentamiento individual de punteria y spray mientras esperas cola",
+    slots: "18/24 Activos",
+    port: "27016",
+  },
+  {
+    id: "dm_ffa",
+    name: "Deathmatch FFA Multi-CFG",
+    desc: "Todos contra todos (AK47 / M4 / AWP / Pistol HS) en Mirage",
+    slots: "14/20 Activos",
+    port: "27017",
+  },
+  {
+    id: "retakes",
+    name: "Retakes 5v5 Competitivo",
+    desc: "Situaciones reales de post-planta de bomba en sitios A y B",
+    slots: "8/10 Activos",
+    port: "27018",
+  },
+];
+
+// Calculo de ELO inicial tras completar las 6 partidas de calibracion (25 a 100 ELO)
+function getInitialCalibratedElo(winsInSix: number): number {
+  const table: Record<number, number> = {
+    0: 25,
+    1: 35,
+    2: 50,
+    3: 65,
+    4: 80,
+    5: 90,
+    6: 100,
+  };
+  const clamped = Math.max(0, Math.min(6, winsInSix));
+  return table[clamped] ?? 25;
+}
+
+// Sistema de Rango Visual y Brillo Progresivo segun el ELO (Gris hasta 5,000+ Radiante)
+function getEloTierStyle(elo: number, totalMatches: number) {
+  if (totalMatches < 6) {
+    return {
+      tierName: `CALIBRANDO (${totalMatches}/6)`,
+      badgeClass:
+        "bg-[#171a21] text-[#8f98a0] border border-dashed border-[#8f98a0]/60",
+      textClass: "text-[#8f98a0]",
+    };
+  }
+
+  if (elo <= 100) {
+    return {
+      tierName: "HIERRO",
+      badgeClass: "bg-[#1c2026] text-[#9aa5b1] border border-[#52606d]",
+      textClass: "text-[#9aa5b1]",
+    };
+  }
+  if (elo < 500) {
+    return {
+      tierName: "BRONCE ACTIVO",
+      badgeClass:
+        "bg-[#a4d007]/15 text-[#a4d007] border border-[#a4d007]/60 shadow-sm shadow-[#a4d007]/20",
+      textClass: "text-[#a4d007]",
+    };
+  }
+  if (elo < 1000) {
+    return {
+      tierName: "ZAFIRO",
+      badgeClass:
+        "bg-[#66c0f4]/15 text-[#66c0f4] border border-[#66c0f4] shadow-md shadow-[#66c0f4]/30",
+      textClass: "text-[#66c0f4] drop-shadow-[0_0_6px_rgba(102,192,244,0.45)]",
+    };
+  }
+  if (elo < 2000) {
+    return {
+      tierName: "AMATISTA",
+      badgeClass:
+        "bg-purple-500/20 text-purple-300 border border-purple-400 shadow-md shadow-purple-500/40",
+      textClass: "text-purple-300 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]",
+    };
+  }
+  if (elo < 3500) {
+    return {
+      tierName: "FENIX CARMESI",
+      badgeClass:
+        "bg-gradient-to-r from-[#FF5500]/30 to-red-600/30 text-[#ff8547] border border-[#FF5500] shadow-lg shadow-[#FF5500]/40",
+      textClass: "text-[#FF5500] drop-shadow-[0_0_10px_rgba(255,85,0,0.75)]",
+    };
+  }
+  if (elo < 5000) {
+    return {
+      tierName: "ORO IMPERIAL",
+      badgeClass:
+        "bg-gradient-to-r from-yellow-500/30 via-amber-300/25 to-yellow-600/30 text-yellow-300 border border-yellow-400 shadow-lg shadow-yellow-400/50",
+      textClass: "text-yellow-300 drop-shadow-[0_0_12px_rgba(253,224,71,0.85)]",
+    };
+  }
+
+  return {
+    tierName: "LEYENDA 5K+",
+    badgeClass:
+      "bg-gradient-to-r from-yellow-400 via-[#FF5500] to-[#66c0f4] text-[#171a21] font-black border border-white shadow-xl shadow-[#FF5500]/60 animate-pulse",
+    textClass:
+      "text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-[#FF5500] to-[#66c0f4] drop-shadow-[0_0_14px_rgba(255,215,0,0.95)] font-black",
+  };
+}
+
 const TEAM_ALPHA_ROSTER = [
-  { nick: "YonathanDHC", elo: 2450, role: "CAPITAN", country: "VE" },
-  { nick: "MaracayAim", elo: 2080, role: "SOLO Q", country: "VE" },
-  { nick: "KevCS_ccs", elo: 1940, role: "SOLO Q", country: "VE" },
-  { nick: "AndresTap", elo: 1890, role: "SOLO Q", country: "CO" },
-  { nick: "ZuliaPeek", elo: 1850, role: "SOLO Q", country: "VE" },
+  { nick: "YonathanDHC", elo: 2450, matches: 50, role: "CAPITAN", country: "VE" },
+  { nick: "MaracayAim", elo: 1280, matches: 36, role: "SOLO Q", country: "VE" },
+  { nick: "KevCS_ccs", elo: 640, matches: 18, role: "SOLO Q", country: "VE" },
+  { nick: "AndresTap", elo: 95, matches: 6, role: "SOLO Q", country: "CO" },
+  { nick: "ZuliaPeek", elo: 0, matches: 4, role: "SOLO Q", country: "VE" },
 ];
 
 const TEAM_OMEGA_ROSTER = [
-  { nick: "Viper_CCS", elo: 2310, role: "CAPITAN", country: "VE" },
-  { nick: "BogotaPeek", elo: 2190, role: "SOLO Q", country: "CO" },
-  { nick: "CatireCS", elo: 1995, role: "SOLO Q", country: "VE" },
-  { nick: "BarquisimetoHS", elo: 1910, role: "SOLO Q", country: "VE" },
-  { nick: "PanchoAWP", elo: 1825, role: "SOLO Q", country: "PA" },
+  { nick: "Viper_CCS", elo: 2310, matches: 45, role: "CAPITAN", country: "VE" },
+  { nick: "BogotaPeek", elo: 3620, matches: 62, role: "SOLO Q", country: "CO" },
+  { nick: "CatireCS", elo: 820, matches: 22, role: "SOLO Q", country: "VE" },
+  { nick: "BarquisimetoHS", elo: 210, matches: 11, role: "SOLO Q", country: "VE" },
+  { nick: "PanchoAWP", elo: 0, matches: 3, role: "SOLO Q", country: "PA" },
 ];
 
 interface MatchItem {
@@ -71,7 +178,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Estados de Cola Premier, Veto 5v5 y Temporizador
+  // Estados de Cola Premier, Mapa de Practica, Veto 5v5 y Temporizador
+  const [selectedPractice, setSelectedPractice] = useState(PRACTICE_MODES[0]);
   const [queueSearching, setQueueSearching] = useState(false);
   const [queueCount, setQueueCount] = useState(10);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
@@ -86,20 +194,20 @@ export default function Home() {
     {
       id: 1,
       sender: "SISTEMA",
-      text: "Emparejamiento Premier completado (10/10). Capitanes elegidos por mayor ELO.",
+      text: "Emparejamiento Premier completado (10/10). Recuerda: los nuevos jugadores calibran su ELO (25 a 100) al cumplir 6 partidas.",
       time: "Ahora",
       isSystem: true,
     },
     {
       id: 2,
       sender: "MaracayAim",
-      text: "Buenas mano, vetemos Vertigo y Anubis de una, juguemos Mirage o Dust2.",
+      text: "Estaba calentando en el mapa de practica Aim Botz, vetemos Vertigo y juguemos Mirage.",
       time: "Hace 5s",
     },
     {
       id: 3,
-      sender: "AndresTap",
-      text: "De una capitan, quita Nuke tambien que tengo mejor FPS en Inferno.",
+      sender: "ZuliaPeek",
+      text: "Esta es mi 5ta partida de calibracion mano, vamos a ganarla para arrancar cerca de 100 ELO!",
       time: "Hace 2s",
     },
   ]);
@@ -119,7 +227,6 @@ export default function Home() {
     if (data && data.length > 0) {
       setMatches(data.slice(0, 6));
     } else {
-      // Respaldo por si cambia el dia a medianoche mostrar maximo las ultimas 6
       const { data: fallback } = await supabase
         .from("matches")
         .select("*")
@@ -172,10 +279,10 @@ export default function Home() {
     (p) => p.steam_id && p.steam_id === loggedSteamId
   );
 
-  // Simulador de Busqueda de Partida Solo Queue (1/10 -> 10/10)
+  // Simulador de Busqueda de Partida Solo Queue
   const handleStartSoloQueue = () => {
     setQueueSearching(true);
-    setQueueCount(3);
+    setQueueCount(4);
     setBannedMaps([]);
     setTimeLeft(15);
 
@@ -188,7 +295,7 @@ export default function Home() {
         }
         return prev + 2 > 10 ? 10 : prev + 2;
       });
-    }, 600);
+    }, 800);
   };
 
   // Logica del Veto de Mapas y Turnos
@@ -264,6 +371,7 @@ export default function Home() {
     }
   };
 
+  // Finalizar partida aplicando la regla de Calibracion (6 partidas -> 25 a 100 ELO) o suma normal
   const handleSimulateFinish = async () => {
     if (!finalMap) return;
     setSavingMatch(true);
@@ -292,16 +400,30 @@ export default function Home() {
     const loserRow = leaderboard.find((p) => p.nickname === captainLoser);
 
     if (winnerRow) {
+      const newWins = winnerRow.wins + 1;
+      const newTotal = newWins + winnerRow.losses;
+      const nextElo =
+        newTotal <= 6
+          ? getInitialCalibratedElo(newWins)
+          : winnerRow.elo + 25;
+
       await supabase
         .from("leaderboard_players")
-        .update({ elo: winnerRow.elo + 25, wins: winnerRow.wins + 1 })
+        .update({ elo: nextElo, wins: newWins })
         .eq("id", winnerRow.id);
     }
 
     if (loserRow) {
+      const newLosses = loserRow.losses + 1;
+      const newTotal = loserRow.wins + newLosses;
+      const nextElo =
+        newTotal <= 6
+          ? getInitialCalibratedElo(loserRow.wins)
+          : Math.max(25, loserRow.elo - 15);
+
       await supabase
         .from("leaderboard_players")
-        .update({ elo: Math.max(100, loserRow.elo - 15), losses: loserRow.losses + 1 })
+        .update({ elo: nextElo, losses: newLosses })
         .eq("id", loserRow.id);
     }
 
@@ -363,15 +485,18 @@ export default function Home() {
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center gap-8 text-sm font-semibold text-[#c7d5e0]">
+          <nav className="hidden md:flex items-center gap-7 text-sm font-semibold text-[#c7d5e0]">
+            <a href="#practica" className="hover:text-[#a4d007] transition">
+              Mapa de Practica
+            </a>
             <a href="#lobby" className="hover:text-[#66c0f4] transition">
               Solo Queue & Veto
             </a>
             <a href="#resultados" className="hover:text-[#66c0f4] transition">
-              Partidas del Dia (Max 6)
+              Partidas del Dia
             </a>
             <a href="#premios" className="hover:text-[#FF5500] transition">
-              Leaderboard & Skins
+              Rangos ELO & Skins
             </a>
           </nav>
 
@@ -382,7 +507,14 @@ export default function Home() {
                 {currentPlayerProfile ? (
                   <div className="flex items-center gap-2">
                     <span className="text-white font-black">{currentPlayerProfile.nickname}</span>
-                    <span className="px-1.5 py-0.5 rounded-sm bg-[#171a21] border border-[#66c0f4]/40 text-[#66c0f4] font-mono text-[11px]">
+                    <span
+                      className={`px-2 py-0.5 rounded-sm font-mono text-[11px] font-bold ${
+                        getEloTierStyle(
+                          currentPlayerProfile.elo,
+                          currentPlayerProfile.wins + currentPlayerProfile.losses
+                        ).badgeClass
+                      }`}
+                    >
                       {currentPlayerProfile.elo} ELO
                     </span>
                   </div>
@@ -415,9 +547,7 @@ export default function Home() {
           <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-pulse"></span>
           {currentPlayerProfile
             ? `SOLO QUEUE PREMIER ACTIVO | JUGADOR: ${currentPlayerProfile.nickname.toUpperCase()} (${currentPlayerProfile.elo} ELO)`
-            : loggedSteamId
-            ? `CUENTA STEAM VERIFICADA (ID: ${loggedSteamId}) | LISTO PARA BUSCAR PARTIDA`
-            : "MODO PREMIER SOLO QUEUE 5v5 | EMPAREJAMIENTO AUTOMATICO POR ELO"}
+            : "CALIBRACION DE 6 PARTIDAS (25-100 ELO INICIAL) | SERVIDOR DE PRACTICA 24/7"}
         </div>
 
         <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-none text-white mb-6">
@@ -428,11 +558,7 @@ export default function Home() {
         </h1>
 
         <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
-          No necesitas tener un equipo armado. Busca partida individualmente, comunicate por el chat del lobby para vetar mapas y sube tu propio ELO por premios en{" "}
-          <span className="text-white font-semibold border-b border-[#FF5500]">
-            Skins de CS2 y USDT
-          </span>
-          .
+          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), calienta punteria en el <span className="text-[#a4d007] font-semibold">Mapa de Practica</span> mientras buscas cola y evoluciona el brillo de tu ELO hasta <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -443,20 +569,73 @@ export default function Home() {
           >
             BUSCAR PARTIDA 5v5 (SOLO QUEUE)
           </a>
-          <button
-            onClick={() => {
-              setRegistered(false);
-              setErrorMsg(null);
-              setModalOpen(true);
-            }}
-            className="w-full sm:w-auto px-8 py-4 rounded-sm border border-[#2a475e] hover:border-[#FF5500] bg-[#1b2838]/80 hover:bg-[#2a475e]/50 text-white font-bold text-base transition cursor-pointer"
+          <a
+            href="#practica"
+            className="w-full sm:w-auto px-8 py-4 rounded-sm border border-[#66c0f4]/60 hover:border-[#66c0f4] bg-[#1b2838]/90 hover:bg-[#2a475e]/60 text-white font-bold text-base transition"
           >
-            REGISTRO DE FUNDADORES
-          </button>
+            ENTRAR AL MAPA DE PRACTICA
+          </a>
         </div>
 
+        {/* NUEVA SECCION: SERVIDOR DE PRACTICA Y WARMUP 24/7 MIENTRAS ESPERAS PARTIDA */}
+        <section id="practica" className="mt-20 text-left">
+          <div className="p-6 rounded-sm bg-gradient-to-r from-[#1b2838] via-[#171a21] to-[#1b2838] border border-[#66c0f4]/50 shadow-xl">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div>
+                <div className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#a4d007] mb-1">
+                  <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-ping"></span>
+                  WARMUP SERVER 24/7 | NO PIERDES TU LUGAR EN LA COLA 5v5
+                </div>
+                <h2 className="text-2xl md:text-3xl font-black text-white">
+                  MAPA DE PRACTICA & CALENTAMIENTO EN VIVO
+                </h2>
+                <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
+                  Si la cola 5v5 esta llenandose o quieres practicar aim antes de competir, entra directo a nuestra isla de entrenamiento en Miami. Cuando tu partida 5v5 llegue a 10/10 recibirás el aviso para pasar al Veto.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <a
+                  href={`steam://connect/mia1.aimvesports.com:${selectedPractice.port}`}
+                  className="px-6 py-3.5 rounded-sm bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white font-black text-xs uppercase tracking-wider text-center transition shadow-lg shadow-[#66c0f4]/25"
+                >
+                  &gt; ENTRAR A PRACTICAR ({selectedPractice.name.split(" ")[0].toUpperCase()})
+                </a>
+              </div>
+            </div>
+
+            {/* Selector de los 3 Modos de Practica */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5 pt-5 border-t border-[#2a475e]/60">
+              {PRACTICE_MODES.map((mode) => {
+                const active = selectedPractice.id === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setSelectedPractice(mode)}
+                    className={`p-4 rounded-sm border text-left transition cursor-pointer ${
+                      active
+                        ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-md shadow-[#66c0f4]/20"
+                        : "bg-[#171a21]/80 border-[#2a475e] hover:border-[#66c0f4]/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
+                      <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
+                        PUERTO :{mode.port}
+                      </span>
+                      <span className="text-[#a4d007]">{mode.slots}</span>
+                    </div>
+                    <div className="text-sm font-black text-white">{mode.name}</div>
+                    <p className="text-[11px] text-[#8f98a0] mt-1">{mode.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
         {/* SECCION 1: SALA PREMIER 5v5 (10 JUGADORES + VETO + CHAT DE EQUIPO) */}
-        <section id="lobby" className="mt-24 text-left">
+        <section id="lobby" className="mt-20 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#66c0f4] text-xs font-black uppercase tracking-widest mb-1">
@@ -498,7 +677,7 @@ export default function Home() {
           <div className="p-6 rounded-sm bg-[#1b2838]/90 border border-[#2a475e] shadow-xl">
             {/* Cabecera Dinamica de los 2 Bandos de Desconocidos (5 vs 5) + Reloj Central */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start mb-8 pb-6 border-b border-[#2a475e]/60">
-              {/* BANDO 1: EQUIPO YONATHANDHC (5 JUGADORES INDIVIDUALES) */}
+              {/* BANDO 1: EQUIPO YONATHANDHC */}
               <div
                 className={`p-4 rounded-sm border transition-all duration-300 ${
                   finalMap
@@ -518,7 +697,7 @@ export default function Home() {
                         EQUIPO YONATHANDHC
                       </div>
                       <span className="text-[10px] text-[#66c0f4] font-bold">
-                        5 Jugadores Individuales | ELO Promedio: 2,042
+                        5 Jugadores Individuales | Solo Queue
                       </span>
                     </div>
                   </div>
@@ -535,30 +714,32 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* Lista de los 5 Jugadores Emparejados */}
                 <div className="space-y-1.5">
-                  {TEAM_ALPHA_ROSTER.map((p, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between px-2.5 py-1.5 rounded-sm bg-[#171a21]/90 border border-[#2a475e]/40 text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
-                        <span className="font-bold text-white">{p.nick}</span>
-                        <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
-                          {p.country}
-                        </span>
-                        {p.role === "CAPITAN" && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#66c0f4]/20 text-[#66c0f4] font-black">
-                            CAPITAN VETO
+                  {TEAM_ALPHA_ROSTER.map((p, idx) => {
+                    const style = getEloTierStyle(p.elo, p.matches);
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between px-2.5 py-1.5 rounded-sm bg-[#171a21]/90 border border-[#2a475e]/40 text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
+                          <span className="font-bold text-white">{p.nick}</span>
+                          <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
+                            {p.country}
                           </span>
-                        )}
+                          {p.role === "CAPITAN" && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#66c0f4]/20 text-[#66c0f4] font-black">
+                              CAPITAN
+                            </span>
+                          )}
+                        </div>
+                        <span className={`font-mono text-[10px] px-2 py-0.5 rounded-sm font-bold ${style.badgeClass}`}>
+                          {p.matches < 6 ? `CALIBRANDO (${p.matches}/6)` : `${p.elo} ELO`}
+                        </span>
                       </div>
-                      <span className="font-mono text-[11px] text-[#66c0f4] font-bold">
-                        {p.elo} ELO
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -572,9 +753,15 @@ export default function Home() {
                     <div className="text-3xl font-black text-white font-mono">
                       {queueCount} / 10
                     </div>
-                    <p className="text-[11px] text-[#8f98a0] mt-2">
-                      Emparejando jugadores por rango de ELO y latencia en Miami...
+                    <p className="text-[11px] text-[#8f98a0] mt-2 mb-3">
+                      ¿Tarda en llenar? Entra al Mapa de Practica sin perder tu turno.
                     </p>
+                    <a
+                      href={`steam://connect/mia1.aimvesports.com:${selectedPractice.port}`}
+                      className="inline-block w-full py-2 rounded-sm bg-[#66c0f4] text-[#171a21] font-black text-[11px] uppercase"
+                    >
+                      Ir a Practicar Mientras Carga
+                    </a>
                   </div>
                 ) : !finalMap ? (
                   <div className="w-full max-w-xs bg-[#171a21] border border-[#2a475e] rounded-sm p-4 shadow-inner">
@@ -616,7 +803,7 @@ export default function Home() {
                 )}
               </div>
 
-              {/* BANDO 2: EQUIPO VIPER_CCS (5 JUGADORES INDIVIDUALES) */}
+              {/* BANDO 2: EQUIPO VIPER_CCS */}
               <div
                 className={`p-4 rounded-sm border transition-all duration-300 ${
                   finalMap
@@ -644,7 +831,7 @@ export default function Home() {
                         EQUIPO VIPER_CCS
                       </div>
                       <span className="text-[10px] text-[#FF5500] font-bold">
-                        5 Jugadores Individuales | ELO Promedio: 2,046
+                        5 Jugadores Individuales | Solo Queue
                       </span>
                     </div>
                     <span className="w-8 h-8 rounded-sm bg-[#FF5500]/20 border border-[#FF5500] flex items-center justify-center font-black text-xs text-[#FF5500]">
@@ -653,37 +840,38 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Lista de los 5 Jugadores Emparejados */}
                 <div className="space-y-1.5">
-                  {TEAM_OMEGA_ROSTER.map((p, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between px-2.5 py-1.5 rounded-sm bg-[#171a21]/90 border border-[#2a475e]/40 text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
-                        <span className="font-bold text-white">{p.nick}</span>
-                        <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
-                          {p.country}
-                        </span>
-                        {p.role === "CAPITAN" && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#FF5500]/20 text-[#FF5500] font-black">
-                            CAPITAN VETO
+                  {TEAM_OMEGA_ROSTER.map((p, idx) => {
+                    const style = getEloTierStyle(p.elo, p.matches);
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between px-2.5 py-1.5 rounded-sm bg-[#171a21]/90 border border-[#2a475e]/40 text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
+                          <span className="font-bold text-white">{p.nick}</span>
+                          <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
+                            {p.country}
                           </span>
-                        )}
+                          {p.role === "CAPITAN" && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#FF5500]/20 text-[#FF5500] font-black">
+                              CAPITAN
+                            </span>
+                          )}
+                        </div>
+                        <span className={`font-mono text-[10px] px-2 py-0.5 rounded-sm font-bold ${style.badgeClass}`}>
+                          {p.matches < 6 ? `CALIBRANDO (${p.matches}/6)` : `${p.elo} ELO`}
+                        </span>
                       </div>
-                      <span className="font-mono text-[11px] text-[#FF5500] font-bold">
-                        {p.elo} ELO
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
             {/* CUERPO DIVIDIDO: LOS 7 MAPAS A LA IZQUIERDA + CHAT DE EQUIPO A LA DERECHA */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-              {/* Columna Izquierda (2/3): Tarjetas de Mapas */}
               <div className="lg:col-span-2 flex flex-col justify-between">
                 <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 gap-3">
                   {CS2_MAPS.map((map) => {
@@ -734,7 +922,6 @@ export default function Home() {
                   })}
                 </div>
 
-                {/* Botones de entrada a CS2 al terminar el veto */}
                 {finalMap && (
                   <div className="mt-6 p-5 rounded-sm bg-[#171a21] border border-[#a4d007]/60 flex flex-col md:flex-row items-center justify-between gap-4">
                     <div>
@@ -797,7 +984,6 @@ export default function Home() {
                   </span>
                 </div>
 
-                {/* Mensajes del Chat */}
                 <div className="p-3.5 space-y-2.5 overflow-y-auto max-h-52 text-xs">
                   {chatMessages.map((msg) => (
                     <div
@@ -817,7 +1003,6 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* Botones Rapidos de Veto + Input de Chat */}
                 <div className="p-3 border-t border-[#2a475e]/60 bg-[#111318]">
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     <button
@@ -923,20 +1108,59 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECCION 3: LEADERBOARD MENSUAL EN TIEMPO REAL DESDE SUPABASE */}
+        {/* SECCION 3: ESCALA DE BRILLO ELO & LEADERBOARD EN TIEMPO REAL */}
         <section id="premios" className="mt-24 text-left">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-6">
             <div>
               <div className="text-[#FF5500] text-xs font-black uppercase tracking-widest mb-1">
-                TEMPORADA FUNDADORES | RANKING INDIVIDUAL PREMIER
+                PROGRESION DE RANGOS & BRILLO ELO | TEMPORADA FUNDADORES
               </div>
               <h2 className="text-3xl font-black text-white">
                 LEADERBOARD TOP ELO & RECOMPENSAS
               </h2>
             </div>
             <span className="text-xs font-bold px-3 py-1.5 bg-[#FF5500]/15 text-[#FF5500] border border-[#FF5500]/40 rounded-sm mt-2 md:mt-0">
-              BOLSA MENSUAL: SKINS CS2 + USDT
+              6 PARTIDAS CALIBRAN TU ELO INICIAL (25 A 100 ELO)
             </span>
+          </div>
+
+          {/* Leyenda Visual de Colores por Nivel de ELO */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 mb-6 p-4 rounded-sm bg-[#111318] border border-[#2a475e]">
+            <div className="p-2.5 rounded-sm bg-[#171a21] border border-dashed border-[#8f98a0]/50 text-center">
+              <div className="text-[10px] font-black text-[#8f98a0]">CALIBRACION</div>
+              <div className="text-xs font-mono font-bold text-white mt-0.5">1 a 6 Partidas</div>
+              <div className="text-[9px] text-[#8f98a0]">Asigna 25-100 ELO</div>
+            </div>
+            <div className="p-2.5 rounded-sm bg-[#1c2026] border border-[#52606d] text-center">
+              <div className="text-[10px] font-black text-[#9aa5b1]">HIERRO</div>
+              <div className="text-xs font-mono font-bold text-[#9aa5b1] mt-0.5">25 - 100 ELO</div>
+              <div className="text-[9px] text-[#8f98a0]">Gris Acero</div>
+            </div>
+            <div className="p-2.5 rounded-sm bg-[#a4d007]/15 border border-[#a4d007]/60 text-center">
+              <div className="text-[10px] font-black text-[#a4d007]">BRONCE</div>
+              <div className="text-xs font-mono font-bold text-[#a4d007] mt-0.5">101 - 499 ELO</div>
+              <div className="text-[9px] text-[#c7d5e0]">Verde Táctico</div>
+            </div>
+            <div className="p-2.5 rounded-sm bg-[#66c0f4]/15 border border-[#66c0f4] text-center shadow-sm shadow-[#66c0f4]/30">
+              <div className="text-[10px] font-black text-[#66c0f4]">ZAFIRO</div>
+              <div className="text-xs font-mono font-bold text-[#66c0f4] mt-0.5">500 - 999 ELO</div>
+              <div className="text-[9px] text-[#c7d5e0]">Azul Eléctrico</div>
+            </div>
+            <div className="p-2.5 rounded-sm bg-purple-500/20 border border-purple-400 text-center shadow-md shadow-purple-500/30">
+              <div className="text-[10px] font-black text-purple-300">AMATISTA</div>
+              <div className="text-xs font-mono font-bold text-purple-300 mt-0.5">1,000 - 1,999</div>
+              <div className="text-[9px] text-purple-200">Neón Púrpura</div>
+            </div>
+            <div className="p-2.5 rounded-sm bg-[#FF5500]/25 border border-[#FF5500] text-center shadow-lg shadow-[#FF5500]/30">
+              <div className="text-[10px] font-black text-[#ff8547]">FENIX</div>
+              <div className="text-xs font-mono font-bold text-[#FF5500] mt-0.5">2,000 - 4,999</div>
+              <div className="text-[9px] text-orange-200">Fuego Imperial</div>
+            </div>
+            <div className="p-2.5 rounded-sm bg-gradient-to-r from-yellow-400/30 via-[#FF5500]/30 to-[#66c0f4]/30 border border-yellow-300 text-center shadow-xl shadow-yellow-400/40">
+              <div className="text-[10px] font-black text-yellow-300">LEYENDA 5K+</div>
+              <div className="text-xs font-mono font-black text-white mt-0.5">5,000+ ELO</div>
+              <div className="text-[9px] text-yellow-200">Radiante Supremo</div>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-sm border border-[#2a475e] bg-[#1b2838]/70">
@@ -945,8 +1169,8 @@ export default function Home() {
                 <tr className="bg-[#171a21] text-[#8f98a0] text-xs uppercase border-b border-[#2a475e]">
                   <th className="py-3.5 px-5">Posicion</th>
                   <th className="py-3.5 px-5">Jugador</th>
-                  <th className="py-3.5 px-5">Rango ELO</th>
-                  <th className="py-3.5 px-5">Partidas (W/L)</th>
+                  <th className="py-3.5 px-5">Rango & Brillo ELO</th>
+                  <th className="py-3.5 px-5">Partidas (6 Calibran)</th>
                   <th className="py-3.5 px-5">Winrate</th>
                   <th className="py-3.5 px-5 text-right">Premio de Temporada</th>
                 </tr>
@@ -956,6 +1180,7 @@ export default function Home() {
                   const totalGames = player.wins + player.losses;
                   const winrate = totalGames > 0 ? Math.round((player.wins / totalGames) * 100) : 0;
                   const isMe = Boolean(loggedSteamId && player.steam_id === loggedSteamId);
+                  const tier = getEloTierStyle(player.elo, totalGames);
 
                   return (
                     <tr
@@ -982,12 +1207,24 @@ export default function Home() {
                           </span>
                         )}
                       </td>
-                      <td className="py-4 px-5 text-[#66c0f4] font-mono font-bold">
-                        {player.elo.toLocaleString()} ELO
+                      <td className="py-4 px-5">
+                        <div className="flex items-center gap-2.5">
+                          <span className={`font-mono text-sm font-black ${tier.textClass}`}>
+                            {totalGames < 6
+                              ? `${getInitialCalibratedElo(player.wins)} ELO (Est.)`
+                              : `${player.elo.toLocaleString()} ELO`}
+                          </span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-sm font-black uppercase ${tier.badgeClass}`}>
+                            {tier.tierName}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-4 px-5 text-xs font-mono text-[#c7d5e0]">
                         <span className="text-[#a4d007] font-bold">{player.wins}W</span> -{" "}
-                        <span className="text-red-400">{player.losses}L</span>
+                        <span className="text-red-400">{player.losses}L</span>{" "}
+                        <span className="text-[10px] text-[#8f98a0] ml-1">
+                          ({totalGames < 6 ? `Calibrando ${totalGames}/6` : `${totalGames} Jugadas`})
+                        </span>
                       </td>
                       <td className="py-4 px-5 text-[#a4d007] font-bold">
                         {winrate}%
