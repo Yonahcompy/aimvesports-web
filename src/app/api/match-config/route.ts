@@ -5,7 +5,6 @@ export async function GET(request: Request) {
   const map = searchParams.get('map') || 'de_mirage';
   const matchId = searchParams.get('id') || '1001';
 
-  // Configuracion oficial estandar para MatchZy / CS2 Dedicated Server
   const matchZyConfig = {
     matchid: Number(matchId),
     num_maps: 1,

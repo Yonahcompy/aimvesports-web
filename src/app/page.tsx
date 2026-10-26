@@ -38,19 +38,17 @@ interface LeaderboardPlayer {
 export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
-
-  // Estado de sesion oficial de Steam
   const [loggedSteamId, setLoggedSteamId] = useState<string | null>(null);
 
-  // Estados del formulario de Fundadores
   const [steamId, setSteamId] = useState("");
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState("Venezuela (Fibra / Low-Ping)");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Estados de la Sala de Veto 5v5, Partidas y Leaderboard
+  // Estados de la Sala de Veto 5v5 y Temporizador
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
+  const [timeLeft, setTimeLeft] = useState<number>(15);
   const [matches, setMatches] = useState<MatchItem[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
   const [savingMatch, setSavingMatch] = useState(false);
@@ -106,26 +104,48 @@ export default function Home() {
     setSteamId("");
   };
 
-  // Buscar si el SteamID conectado pertenece a un jugador del Leaderboard
   const currentPlayerProfile = leaderboard.find(
     (p) => p.steam_id && p.steam_id === loggedSteamId
   );
 
-  // Logica del Veto de Mapas (Pick & Ban)
+  // Logica del Veto de Mapas y Turnos
   const remainingMaps = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
   const finalMap = remainingMaps.length === 1 ? remainingMaps[0] : null;
-  const currentTurn = bannedMaps.length % 2 === 0 ? "Equipo Alpha" : "Equipo Omega";
+  const isAlphaTurn = bannedMaps.length % 2 === 0;
+  const currentTurn = isAlphaTurn ? "Equipo Alpha" : "Equipo Omega";
+
+  // Reloj de 15 segundos por turno con Auto-Veto si se agota el tiempo
+  useEffect(() => {
+    if (finalMap) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          const available = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
+          if (available.length > 1) {
+            const randomPick = available[Math.floor(Math.random() * available.length)];
+            setBannedMaps((curr) => [...curr, randomPick.id]);
+          }
+          return 15;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [bannedMaps, finalMap]);
 
   const handleBanMap = (mapId: string) => {
     if (finalMap || bannedMaps.includes(mapId)) return;
     setBannedMaps([...bannedMaps, mapId]);
+    setTimeLeft(15);
   };
 
   const resetVeto = () => {
     setBannedMaps([]);
+    setTimeLeft(15);
   };
 
-  // Registrar resultado de partida y actualizar ELO en vivo en Supabase
   const handleSimulateFinish = async () => {
     if (!finalMap) return;
     setSavingMatch(true);
@@ -328,53 +348,138 @@ export default function Home() {
               </h2>
             </div>
             <div className="mt-3 md:mt-0 flex items-center gap-3">
-              <span className="text-xs px-3 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-[#c7d5e0] font-bold">
+              <span
+                className={`text-xs px-3 py-1.5 rounded-sm border font-bold ${
+                  finalMap
+                    ? "bg-[#a4d007]/20 border-[#a4d007] text-[#a4d007]"
+                    : isAlphaTurn
+                    ? "bg-[#66c0f4]/15 border-[#66c0f4] text-[#66c0f4]"
+                    : "bg-[#FF5500]/15 border-[#FF5500] text-[#FF5500]"
+                }`}
+              >
                 {finalMap
                   ? `MAPA ELEGIDO: ${finalMap.name.toUpperCase()}`
-                  : `TURNO DE BANEO: ${currentTurn.toUpperCase()}`}
+                  : `TURNO ACTIVO: ${currentTurn.toUpperCase()} (${timeLeft}s)`}
               </span>
-              {bannedMaps.length > 0 && (
-                <button
-                  onClick={resetVeto}
-                  className="text-xs px-3 py-1.5 rounded-sm bg-[#2a475e]/60 hover:bg-[#2a475e] text-white font-bold transition cursor-pointer"
-                >
-                  Reiniciar Veto
-                </button>
-              )}
+              <button
+                onClick={resetVeto}
+                className="text-xs px-3 py-1.5 rounded-sm bg-[#2a475e]/60 hover:bg-[#2a475e] text-white font-bold transition cursor-pointer"
+              >
+                Reiniciar Veto
+              </button>
             </div>
           </div>
 
           <div className="p-6 rounded-sm bg-[#1b2838]/90 border border-[#2a475e] shadow-xl">
+            {/* Cabecera Dinamica de Equipos con Iluminacion de Turno y Reloj */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center mb-8 pb-6 border-b border-[#2a475e]/60">
-              <div className="flex items-center justify-between md:justify-start gap-4">
-                <div className="w-12 h-12 rounded-sm bg-[#66c0f4]/15 border border-[#66c0f4] flex items-center justify-center font-black text-[#66c0f4]">
-                  CT
-                </div>
-                <div>
-                  <div className="text-white font-black text-lg">EQUIPO ALPHA</div>
-                  <div className="text-xs text-[#66c0f4] font-bold">Capitan: YonathanDHC | 5/5 Listos</div>
+              {/* Tarjeta EQUIPO ALPHA */}
+              <div
+                className={`p-4 rounded-sm border transition-all duration-300 flex items-center justify-between ${
+                  finalMap
+                    ? "bg-[#171a21]/90 border-[#2a475e]"
+                    : isAlphaTurn
+                    ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-lg shadow-[#66c0f4]/20 scale-[1.01]"
+                    : "bg-[#171a21]/40 border-[#2a475e]/40 opacity-50"
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-sm bg-[#66c0f4]/20 border border-[#66c0f4] flex items-center justify-center font-black text-[#66c0f4]">
+                    CT
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-black text-lg leading-none">EQUIPO ALPHA</span>
+                      {!finalMap && isAlphaTurn && (
+                        <span className="px-2 py-0.5 text-[10px] font-black uppercase bg-[#66c0f4] text-[#171a21] rounded-sm animate-pulse">
+                          VETANDO AHORA
+                        </span>
+                      )}
+                      {!finalMap && !isAlphaTurn && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-[#171a21] text-[#8f98a0] border border-[#2a475e] rounded-sm">
+                          EN ESPERA
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-[#66c0f4] font-bold mt-1">
+                      Capitan: YonathanDHC | 5/5 Listos
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="text-center">
+              {/* Reloj Central de Veto */}
+              <div className="text-center flex flex-col items-center justify-center">
                 {!finalMap ? (
-                  <div className="inline-block px-4 py-1.5 rounded-sm bg-[#FF5500]/15 border border-[#FF5500]/40 text-[#FF5500] text-xs font-black tracking-wider uppercase">
-                    Haz clic en los mapas para descartarlos ({bannedMaps.length}/6 baneados)
+                  <div className="w-full max-w-xs bg-[#171a21] border border-[#2a475e] rounded-sm p-3">
+                    <div className="flex items-center justify-between text-xs font-black uppercase mb-1.5">
+                      <span className={isAlphaTurn ? "text-[#66c0f4]" : "text-[#FF5500]"}>
+                        TURNO: {currentTurn}
+                      </span>
+                      <span
+                        className={`font-mono text-sm ${
+                          timeLeft <= 5 ? "text-red-400 animate-pulse" : "text-white"
+                        }`}
+                      >
+                        00:{timeLeft < 10 ? `0${timeLeft}` : timeLeft}s
+                      </span>
+                    </div>
+                    {/* Barra de tiempo */}
+                    <div className="w-full h-2 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/50">
+                      <div
+                        className={`h-full transition-all duration-1000 ${
+                          timeLeft <= 5
+                            ? "bg-red-500"
+                            : isAlphaTurn
+                            ? "bg-[#66c0f4]"
+                            : "bg-[#FF5500]"
+                        }`}
+                        style={{ width: `${(timeLeft / 15) * 100}%` }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-[#8f98a0] font-semibold mt-1.5">
+                      Haz clic en un mapa para vetarlo ({bannedMaps.length}/6 baneados)
+                    </div>
                   </div>
                 ) : (
-                  <div className="inline-block px-4 py-1.5 rounded-sm bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] text-xs font-black tracking-wider uppercase">
-                    Servidor Configurado | Listo para ingresar
+                  <div className="inline-block px-5 py-2.5 rounded-sm bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] text-xs font-black tracking-wider uppercase">
+                    Veto Completado | Servidor Listo
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center justify-between md:justify-end gap-4">
-                <div className="text-left md:text-right">
-                  <div className="text-white font-black text-lg">EQUIPO OMEGA</div>
-                  <div className="text-xs text-[#FF5500] font-bold">Capitan: Viper_CCS | 5/5 Listos</div>
-                </div>
-                <div className="w-12 h-12 rounded-sm bg-[#FF5500]/15 border border-[#FF5500] flex items-center justify-center font-black text-[#FF5500]">
-                  TT
+              {/* Tarjeta EQUIPO OMEGA */}
+              <div
+                className={`p-4 rounded-sm border transition-all duration-300 flex items-center justify-between md:justify-end ${
+                  finalMap
+                    ? "bg-[#171a21]/90 border-[#2a475e]"
+                    : !isAlphaTurn
+                    ? "bg-[#FF5500]/15 border-[#FF5500] shadow-lg shadow-[#FF5500]/20 scale-[1.01]"
+                    : "bg-[#171a21]/40 border-[#2a475e]/40 opacity-50"
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="text-left md:text-right">
+                    <div className="flex items-center md:justify-end gap-2">
+                      {!finalMap && !isAlphaTurn && (
+                        <span className="px-2 py-0.5 text-[10px] font-black uppercase bg-[#FF5500] text-white rounded-sm animate-pulse">
+                          VETANDO AHORA
+                        </span>
+                      )}
+                      {!finalMap && isAlphaTurn && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-[#171a21] text-[#8f98a0] border border-[#2a475e] rounded-sm">
+                          EN ESPERA
+                        </span>
+                      )}
+                      <span className="text-white font-black text-lg leading-none">EQUIPO OMEGA</span>
+                    </div>
+                    <div className="text-xs text-[#FF5500] font-bold mt-1">
+                      Capitan: Viper_CCS | 5/5 Listos
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 rounded-sm bg-[#FF5500]/20 border border-[#FF5500] flex items-center justify-center font-black text-[#FF5500]">
+                    TT
+                  </div>
                 </div>
               </div>
             </div>
@@ -395,6 +500,8 @@ export default function Home() {
                         ? "bg-[#111318]/90 border-red-900/50 opacity-45 cursor-not-allowed"
                         : isWinner
                         ? "bg-gradient-to-b from-[#a4d007]/25 to-[#171a21] border-[#a4d007] shadow-lg shadow-[#a4d007]/20"
+                        : isAlphaTurn
+                        ? "bg-[#171a21] border-[#2a475e] hover:border-[#66c0f4] cursor-pointer group"
                         : "bg-[#171a21] border-[#2a475e] hover:border-[#FF5500] cursor-pointer group"
                     }`}
                   >
@@ -414,8 +521,12 @@ export default function Home() {
                     </div>
 
                     {!isBanned && !isWinner && (
-                      <div className="text-[10px] font-bold text-[#FF5500] opacity-0 group-hover:opacity-100 transition">
-                        Clic para banear -&gt;
+                      <div
+                        className={`text-[10px] font-bold opacity-0 group-hover:opacity-100 transition ${
+                          isAlphaTurn ? "text-[#66c0f4]" : "text-[#FF5500]"
+                        }`}
+                      >
+                        Vetar ({currentTurn}) -&gt;
                       </div>
                     )}
                   </button>
@@ -430,7 +541,7 @@ export default function Home() {
                     MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})
                   </div>
                   <p className="text-xs text-[#8f98a0] mt-1">
-                    El servidor de Miami ya cargo el mapa. Ingresa con un clic sin abrir consola o registra el resultado para actualizar el ELO.
+                    Configuracion lista en /api/match-config?map={finalMap.id}. Ingresa con un clic o registra el marcador.
                   </p>
                 </div>
 
