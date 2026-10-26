@@ -13,8 +13,25 @@ const CS2_MAPS = [
   { id: "de_vertigo", name: "Vertigo", tag: "Combate corto" },
 ];
 
+const TEAM_ALPHA_ROSTER = [
+  { nick: "YonathanDHC", elo: 2450, role: "CAPITAN", country: "VE" },
+  { nick: "MaracayAim", elo: 2080, role: "SOLO Q", country: "VE" },
+  { nick: "KevCS_ccs", elo: 1940, role: "SOLO Q", country: "VE" },
+  { nick: "AndresTap", elo: 1890, role: "SOLO Q", country: "CO" },
+  { nick: "ZuliaPeek", elo: 1850, role: "SOLO Q", country: "VE" },
+];
+
+const TEAM_OMEGA_ROSTER = [
+  { nick: "Viper_CCS", elo: 2310, role: "CAPITAN", country: "VE" },
+  { nick: "BogotaPeek", elo: 2190, role: "SOLO Q", country: "CO" },
+  { nick: "CatireCS", elo: 1995, role: "SOLO Q", country: "VE" },
+  { nick: "BarquisimetoHS", elo: 1910, role: "SOLO Q", country: "VE" },
+  { nick: "PanchoAWP", elo: 1825, role: "SOLO Q", country: "PA" },
+];
+
 interface MatchItem {
   id: number;
+  created_at: string;
   team_a: string;
   team_b: string;
   selected_map: string;
@@ -35,6 +52,14 @@ interface LeaderboardPlayer {
   season_prize: string;
 }
 
+interface ChatMessage {
+  id: number;
+  sender: string;
+  text: string;
+  time: string;
+  isSystem?: boolean;
+}
+
 export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
@@ -46,22 +71,61 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Estados de la Sala de Veto 5v5 y Temporizador
+  // Estados de Cola Premier, Veto 5v5 y Temporizador
+  const [queueSearching, setQueueSearching] = useState(false);
+  const [queueCount, setQueueCount] = useState(10);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState<number>(15);
   const [matches, setMatches] = useState<MatchItem[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
   const [savingMatch, setSavingMatch] = useState(false);
 
+  // Estados del Chat de Equipo durante el Veto
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: 1,
+      sender: "SISTEMA",
+      text: "Emparejamiento Premier completado (10/10). Capitanes elegidos por mayor ELO.",
+      time: "Ahora",
+      isSystem: true,
+    },
+    {
+      id: 2,
+      sender: "MaracayAim",
+      text: "Buenas mano, vetemos Vertigo y Anubis de una, juguemos Mirage o Dust2.",
+      time: "Hace 5s",
+    },
+    {
+      id: 3,
+      sender: "AndresTap",
+      text: "De una capitan, quita Nuke tambien que tengo mejor FPS en Inferno.",
+      time: "Hace 2s",
+    },
+  ]);
+
+  // Cargar unicamente hasta 6 partidas del dia actual desde Supabase
   const fetchMatches = async () => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
     const { data } = await supabase
       .from("matches")
       .select("*")
+      .gte("created_at", startOfToday.toISOString())
       .order("id", { ascending: false })
       .limit(6);
 
-    if (data) {
-      setMatches(data);
+    if (data && data.length > 0) {
+      setMatches(data.slice(0, 6));
+    } else {
+      // Respaldo por si cambia el dia a medianoche mostrar maximo las ultimas 6
+      const { data: fallback } = await supabase
+        .from("matches")
+        .select("*")
+        .order("id", { ascending: false })
+        .limit(6);
+      if (fallback) setMatches(fallback.slice(0, 6));
     }
   };
 
@@ -108,15 +172,34 @@ export default function Home() {
     (p) => p.steam_id && p.steam_id === loggedSteamId
   );
 
+  // Simulador de Busqueda de Partida Solo Queue (1/10 -> 10/10)
+  const handleStartSoloQueue = () => {
+    setQueueSearching(true);
+    setQueueCount(3);
+    setBannedMaps([]);
+    setTimeLeft(15);
+
+    const interval = setInterval(() => {
+      setQueueCount((prev) => {
+        if (prev >= 10) {
+          clearInterval(interval);
+          setQueueSearching(false);
+          return 10;
+        }
+        return prev + 2 > 10 ? 10 : prev + 2;
+      });
+    }, 600);
+  };
+
   // Logica del Veto de Mapas y Turnos
   const remainingMaps = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
   const finalMap = remainingMaps.length === 1 ? remainingMaps[0] : null;
   const isAlphaTurn = bannedMaps.length % 2 === 0;
-  const currentTurn = isAlphaTurn ? "Equipo Alpha" : "Equipo Omega";
+  const currentTurn = isAlphaTurn ? "Equipo YonathanDHC" : "Equipo Viper_CCS";
 
-  // Reloj de 15 segundos por turno con Auto-Veto si se agota el tiempo
+  // Reloj de 15 segundos por turno con Auto-Veto
   useEffect(() => {
-    if (finalMap) return;
+    if (finalMap || queueSearching) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -133,17 +216,52 @@ export default function Home() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [bannedMaps, finalMap]);
+  }, [bannedMaps, finalMap, queueSearching]);
 
   const handleBanMap = (mapId: string) => {
-    if (finalMap || bannedMaps.includes(mapId)) return;
+    if (finalMap || bannedMaps.includes(mapId) || queueSearching) return;
+    const mapObj = CS2_MAPS.find((m) => m.id === mapId);
     setBannedMaps([...bannedMaps, mapId]);
     setTimeLeft(15);
+
+    if (mapObj) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          sender: isAlphaTurn ? "YonathanDHC (Capitan)" : "Viper_CCS (Capitan)",
+          text: `Veto confirmado: descartado ${mapObj.name}.`,
+          time: "Ahora",
+          isSystem: true,
+        },
+      ]);
+    }
   };
 
   const resetVeto = () => {
     setBannedMaps([]);
     setTimeLeft(15);
+  };
+
+  const sendChatMessage = (customText?: string) => {
+    const msgToSend = (customText ?? chatInput).trim();
+    if (!msgToSend) return;
+
+    const senderName = currentPlayerProfile ? currentPlayerProfile.nickname : "YonathanDHC";
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        sender: senderName,
+        text: msgToSend,
+        time: "Ahora",
+      },
+    ]);
+
+    if (!customText) {
+      setChatInput("");
+    }
   };
 
   const handleSimulateFinish = async () => {
@@ -152,17 +270,17 @@ export default function Home() {
 
     const roundsLoser = Math.floor(Math.random() * 10) + 2;
     const alphaWins = Math.random() > 0.5;
-    const winnerTeam = alphaWins ? "Equipo Alpha (YonathanDHC)" : "Equipo Omega (Viper_CCS)";
+    const winnerTeam = alphaWins ? "Equipo YonathanDHC" : "Equipo Viper_CCS";
 
     await supabase.from("matches").insert([
       {
-        team_a: "Equipo Alpha",
-        team_b: "Equipo Omega",
+        team_a: "Equipo YonathanDHC",
+        team_b: "Equipo Viper_CCS",
         selected_map: finalMap.id,
         banned_maps: bannedMaps,
         score_a: alphaWins ? 13 : roundsLoser,
         score_b: alphaWins ? roundsLoser : 13,
-        status: "FINALIZADA",
+        status: "PREMIER 5v5",
         winner: winnerTeam,
       },
     ]);
@@ -247,10 +365,10 @@ export default function Home() {
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-semibold text-[#c7d5e0]">
             <a href="#lobby" className="hover:text-[#66c0f4] transition">
-              Lobby & Map Veto
+              Solo Queue & Veto
             </a>
             <a href="#resultados" className="hover:text-[#66c0f4] transition">
-              Resultados en Vivo
+              Partidas del Dia (Max 6)
             </a>
             <a href="#premios" className="hover:text-[#FF5500] transition">
               Leaderboard & Skins
@@ -296,21 +414,21 @@ export default function Home() {
         <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-xs font-bold text-[#66c0f4] mb-8 shadow-inner">
           <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-pulse"></span>
           {currentPlayerProfile
-            ? `BIENVENIDO ${currentPlayerProfile.nickname.toUpperCase()} (${currentPlayerProfile.elo} ELO) | STEAM ID: ${loggedSteamId}`
+            ? `SOLO QUEUE PREMIER ACTIVO | JUGADOR: ${currentPlayerProfile.nickname.toUpperCase()} (${currentPlayerProfile.elo} ELO)`
             : loggedSteamId
-            ? `CUENTA STEAM VERIFICADA (ID: ${loggedSteamId}) | LISTO PARA COMPETIR`
-            : "MATCHMAKING WEB AUTOMATIZADO | 35-55 MS LOW-PING"}
+            ? `CUENTA STEAM VERIFICADA (ID: ${loggedSteamId}) | LISTO PARA BUSCAR PARTIDA`
+            : "MODO PREMIER SOLO QUEUE 5v5 | EMPAREJAMIENTO AUTOMATICO POR ELO"}
         </div>
 
         <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-none text-white mb-6">
-          EL CIRCUITO COMPETITIVO <br />
+          ENTRA SOLO, VETA EL MAPA <br />
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#66c0f4] via-[#c7d5e0] to-[#FF5500]">
-            DE CS2 PARA LATAM
+            Y COMPITE EN PREMIER LATAM
           </span>
         </h1>
 
         <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
-          Veto de mapas directamente en la web, lanzamiento automatico de CS2 sin usar consola, registro de marcadores en tiempo real y premios en{" "}
+          No necesitas tener un equipo armado. Busca partida individualmente, comunicate por el chat del lobby para vetar mapas y sube tu propio ELO por premios en{" "}
           <span className="text-white font-semibold border-b border-[#FF5500]">
             Skins de CS2 y USDT
           </span>
@@ -318,36 +436,43 @@ export default function Home() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <a
+            href="#lobby"
+            onClick={handleStartSoloQueue}
+            className="w-full sm:w-auto bg-gradient-to-r from-[#a4d007] to-[#7aa600] hover:brightness-110 text-[#171a21] font-black px-8 py-4 rounded-sm text-base tracking-wide transition shadow-xl shadow-[#a4d007]/20 cursor-pointer"
+          >
+            BUSCAR PARTIDA 5v5 (SOLO QUEUE)
+          </a>
           <button
             onClick={() => {
               setRegistered(false);
               setErrorMsg(null);
               setModalOpen(true);
             }}
-            className="w-full sm:w-auto bg-gradient-to-r from-[#FF5500] to-[#e03e00] hover:from-[#ff6a1f] hover:to-[#ff4500] text-white font-black px-8 py-4 rounded-sm text-base tracking-wide transition shadow-xl shadow-[#FF5500]/25 border border-orange-400/30 cursor-pointer"
+            className="w-full sm:w-auto px-8 py-4 rounded-sm border border-[#2a475e] hover:border-[#FF5500] bg-[#1b2838]/80 hover:bg-[#2a475e]/50 text-white font-bold text-base transition cursor-pointer"
           >
-            ENTRAR AL ACCESO ANTICIPADO
+            REGISTRO DE FUNDADORES
           </button>
-          <a
-            href="#lobby"
-            className="w-full sm:w-auto px-8 py-4 rounded-sm border border-[#2a475e] hover:border-[#66c0f4] bg-[#1b2838]/80 hover:bg-[#2a475e]/50 text-white font-bold text-base transition"
-          >
-            PROBAR SALA DE VETO 5v5
-          </a>
         </div>
 
-        {/* SECCION 1: SALA INTERACTIVA DE MATCHMAKING Y VETO DE MAPAS */}
+        {/* SECCION 1: SALA PREMIER 5v5 (10 JUGADORES + VETO + CHAT DE EQUIPO) */}
         <section id="lobby" className="mt-24 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#66c0f4] text-xs font-black uppercase tracking-widest mb-1">
-                LOBBY COMPETITIVO 5v5 | PICK & BAN EN VIVO
+                MODO PREMIER SOLO QUEUE | 10 JUGADORES EMPAREJADOS POR ELO
               </div>
               <h2 className="text-3xl font-black text-white">
-                SALA DE PARTIDA & SELECCION DE MAPA
+                SALA DE PARTIDA, VETO & CHAT DE EQUIPO
               </h2>
             </div>
-            <div className="mt-3 md:mt-0 flex items-center gap-3">
+            <div className="mt-3 md:mt-0 flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleStartSoloQueue}
+                className="text-xs px-3.5 py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] font-black uppercase transition cursor-pointer"
+              >
+                {queueSearching ? `Buscando Jugadores (${queueCount}/10)...` : "Buscar Nueva Partida Solo Q"}
+              </button>
               <span
                 className={`text-xs px-3 py-1.5 rounded-sm border font-bold ${
                   finalMap
@@ -371,61 +496,104 @@ export default function Home() {
           </div>
 
           <div className="p-6 rounded-sm bg-[#1b2838]/90 border border-[#2a475e] shadow-xl">
-            {/* Cabecera Dinamica de Equipos con Iluminacion de Turno y Reloj */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center mb-8 pb-6 border-b border-[#2a475e]/60">
-              {/* Tarjeta EQUIPO ALPHA */}
+            {/* Cabecera Dinamica de los 2 Bandos de Desconocidos (5 vs 5) + Reloj Central */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start mb-8 pb-6 border-b border-[#2a475e]/60">
+              {/* BANDO 1: EQUIPO YONATHANDHC (5 JUGADORES INDIVIDUALES) */}
               <div
-                className={`p-4 rounded-sm border transition-all duration-300 flex items-center justify-between ${
+                className={`p-4 rounded-sm border transition-all duration-300 ${
                   finalMap
                     ? "bg-[#171a21]/90 border-[#2a475e]"
                     : isAlphaTurn
-                    ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-lg shadow-[#66c0f4]/20 scale-[1.01]"
-                    : "bg-[#171a21]/40 border-[#2a475e]/40 opacity-50"
+                    ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-lg shadow-[#66c0f4]/20"
+                    : "bg-[#171a21]/40 border-[#2a475e]/40 opacity-55"
                 }`}
               >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-sm bg-[#66c0f4]/20 border border-[#66c0f4] flex items-center justify-center font-black text-[#66c0f4]">
-                    CT
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white font-black text-lg leading-none">EQUIPO ALPHA</span>
-                      {!finalMap && isAlphaTurn && (
-                        <span className="px-2 py-0.5 text-[10px] font-black uppercase bg-[#66c0f4] text-[#171a21] rounded-sm animate-pulse">
-                          VETANDO AHORA
-                        </span>
-                      )}
-                      {!finalMap && !isAlphaTurn && (
-                        <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-[#171a21] text-[#8f98a0] border border-[#2a475e] rounded-sm">
-                          EN ESPERA
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-[#66c0f4] font-bold mt-1">
-                      Capitan: YonathanDHC | 5/5 Listos
+                <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#2a475e]/50">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-sm bg-[#66c0f4]/20 border border-[#66c0f4] flex items-center justify-center font-black text-xs text-[#66c0f4]">
+                      CT
+                    </span>
+                    <div>
+                      <div className="text-white font-black text-base leading-none">
+                        EQUIPO YONATHANDHC
+                      </div>
+                      <span className="text-[10px] text-[#66c0f4] font-bold">
+                        5 Jugadores Individuales | ELO Promedio: 2,042
+                      </span>
                     </div>
                   </div>
+                  {!finalMap && (
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-black uppercase rounded-sm ${
+                        isAlphaTurn
+                          ? "bg-[#66c0f4] text-[#171a21] animate-pulse"
+                          : "bg-[#171a21] text-[#8f98a0] border border-[#2a475e]"
+                      }`}
+                    >
+                      {isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA"}
+                    </span>
+                  )}
+                </div>
+
+                {/* Lista de los 5 Jugadores Emparejados */}
+                <div className="space-y-1.5">
+                  {TEAM_ALPHA_ROSTER.map((p, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between px-2.5 py-1.5 rounded-sm bg-[#171a21]/90 border border-[#2a475e]/40 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
+                        <span className="font-bold text-white">{p.nick}</span>
+                        <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
+                          {p.country}
+                        </span>
+                        {p.role === "CAPITAN" && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#66c0f4]/20 text-[#66c0f4] font-black">
+                            CAPITAN VETO
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono text-[11px] text-[#66c0f4] font-bold">
+                        {p.elo} ELO
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Reloj Central de Veto */}
-              <div className="text-center flex flex-col items-center justify-center">
-                {!finalMap ? (
-                  <div className="w-full max-w-xs bg-[#171a21] border border-[#2a475e] rounded-sm p-3">
-                    <div className="flex items-center justify-between text-xs font-black uppercase mb-1.5">
+              {/* RELOJ CENTRAL DE VETO PREMIER */}
+              <div className="text-center flex flex-col items-center justify-center my-auto">
+                {queueSearching ? (
+                  <div className="w-full max-w-xs bg-[#171a21] border border-[#a4d007] rounded-sm p-5">
+                    <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider animate-pulse mb-2">
+                      BUSCANDO JUGADORES EN COLA...
+                    </div>
+                    <div className="text-3xl font-black text-white font-mono">
+                      {queueCount} / 10
+                    </div>
+                    <p className="text-[11px] text-[#8f98a0] mt-2">
+                      Emparejando jugadores por rango de ELO y latencia en Miami...
+                    </p>
+                  </div>
+                ) : !finalMap ? (
+                  <div className="w-full max-w-xs bg-[#171a21] border border-[#2a475e] rounded-sm p-4 shadow-inner">
+                    <div className="text-[10px] font-bold text-[#8f98a0] uppercase tracking-widest mb-1">
+                      TIEMPO RESTANTE PARA VETAR
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-black uppercase mb-2">
                       <span className={isAlphaTurn ? "text-[#66c0f4]" : "text-[#FF5500]"}>
-                        TURNO: {currentTurn}
+                        {currentTurn}
                       </span>
                       <span
-                        className={`font-mono text-sm ${
+                        className={`font-mono text-base ${
                           timeLeft <= 5 ? "text-red-400 animate-pulse" : "text-white"
                         }`}
                       >
                         00:{timeLeft < 10 ? `0${timeLeft}` : timeLeft}s
                       </span>
                     </div>
-                    {/* Barra de tiempo */}
-                    <div className="w-full h-2 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/50">
+                    <div className="w-full h-2.5 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/50">
                       <div
                         className={`h-full transition-all duration-1000 ${
                           timeLeft <= 5
@@ -437,152 +605,268 @@ export default function Home() {
                         style={{ width: `${(timeLeft / 15) * 100}%` }}
                       />
                     </div>
-                    <div className="text-[11px] text-[#8f98a0] font-semibold mt-1.5">
-                      Haz clic en un mapa para vetarlo ({bannedMaps.length}/6 baneados)
+                    <div className="text-[11px] text-[#8f98a0] font-semibold mt-2">
+                      Si el reloj llega a 0s se banea un mapa al azar ({bannedMaps.length}/6 vetados)
                     </div>
                   </div>
                 ) : (
-                  <div className="inline-block px-5 py-2.5 rounded-sm bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] text-xs font-black tracking-wider uppercase">
-                    Veto Completado | Servidor Listo
+                  <div className="w-full max-w-xs px-5 py-4 rounded-sm bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] text-xs font-black tracking-wider uppercase">
+                    Veto Completado | Servidor Miami Listo
                   </div>
                 )}
               </div>
 
-              {/* Tarjeta EQUIPO OMEGA */}
+              {/* BANDO 2: EQUIPO VIPER_CCS (5 JUGADORES INDIVIDUALES) */}
               <div
-                className={`p-4 rounded-sm border transition-all duration-300 flex items-center justify-between md:justify-end ${
+                className={`p-4 rounded-sm border transition-all duration-300 ${
                   finalMap
                     ? "bg-[#171a21]/90 border-[#2a475e]"
                     : !isAlphaTurn
-                    ? "bg-[#FF5500]/15 border-[#FF5500] shadow-lg shadow-[#FF5500]/20 scale-[1.01]"
-                    : "bg-[#171a21]/40 border-[#2a475e]/40 opacity-50"
+                    ? "bg-[#FF5500]/15 border-[#FF5500] shadow-lg shadow-[#FF5500]/20"
+                    : "bg-[#171a21]/40 border-[#2a475e]/40 opacity-55"
                 }`}
               >
-                <div className="flex items-center gap-3.5">
-                  <div className="text-left md:text-right">
-                    <div className="flex items-center md:justify-end gap-2">
-                      {!finalMap && !isAlphaTurn && (
-                        <span className="px-2 py-0.5 text-[10px] font-black uppercase bg-[#FF5500] text-white rounded-sm animate-pulse">
-                          VETANDO AHORA
-                        </span>
-                      )}
-                      {!finalMap && isAlphaTurn && (
-                        <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-[#171a21] text-[#8f98a0] border border-[#2a475e] rounded-sm">
-                          EN ESPERA
-                        </span>
-                      )}
-                      <span className="text-white font-black text-lg leading-none">EQUIPO OMEGA</span>
+                <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#2a475e]/50">
+                  {!finalMap && (
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-black uppercase rounded-sm ${
+                        !isAlphaTurn
+                          ? "bg-[#FF5500] text-white animate-pulse"
+                          : "bg-[#171a21] text-[#8f98a0] border border-[#2a475e]"
+                      }`}
+                    >
+                      {!isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA"}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-2.5 ml-auto text-right">
+                    <div>
+                      <div className="text-white font-black text-base leading-none">
+                        EQUIPO VIPER_CCS
+                      </div>
+                      <span className="text-[10px] text-[#FF5500] font-bold">
+                        5 Jugadores Individuales | ELO Promedio: 2,046
+                      </span>
                     </div>
-                    <div className="text-xs text-[#FF5500] font-bold mt-1">
-                      Capitan: Viper_CCS | 5/5 Listos
+                    <span className="w-8 h-8 rounded-sm bg-[#FF5500]/20 border border-[#FF5500] flex items-center justify-center font-black text-xs text-[#FF5500]">
+                      TT
+                    </span>
+                  </div>
+                </div>
+
+                {/* Lista de los 5 Jugadores Emparejados */}
+                <div className="space-y-1.5">
+                  {TEAM_OMEGA_ROSTER.map((p, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between px-2.5 py-1.5 rounded-sm bg-[#171a21]/90 border border-[#2a475e]/40 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
+                        <span className="font-bold text-white">{p.nick}</span>
+                        <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
+                          {p.country}
+                        </span>
+                        {p.role === "CAPITAN" && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#FF5500]/20 text-[#FF5500] font-black">
+                            CAPITAN VETO
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono text-[11px] text-[#FF5500] font-bold">
+                        {p.elo} ELO
+                      </span>
                     </div>
-                  </div>
-                  <div className="w-12 h-12 rounded-sm bg-[#FF5500]/20 border border-[#FF5500] flex items-center justify-center font-black text-[#FF5500]">
-                    TT
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
 
-            {/* Cuadricula de los 7 Mapas de CS2 */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
-              {CS2_MAPS.map((map) => {
-                const isBanned = bannedMaps.includes(map.id);
-                const isWinner = finalMap?.id === map.id;
+            {/* CUERPO DIVIDIDO: LOS 7 MAPAS A LA IZQUIERDA + CHAT DE EQUIPO A LA DERECHA */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+              {/* Columna Izquierda (2/3): Tarjetas de Mapas */}
+              <div className="lg:col-span-2 flex flex-col justify-between">
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 gap-3">
+                  {CS2_MAPS.map((map) => {
+                    const isBanned = bannedMaps.includes(map.id);
+                    const isWinner = finalMap?.id === map.id;
 
-                return (
-                  <button
-                    key={map.id}
-                    onClick={() => handleBanMap(map.id)}
-                    disabled={isBanned || Boolean(finalMap)}
-                    className={`p-4 rounded-sm border text-left transition flex flex-col justify-between h-32 relative overflow-hidden ${
-                      isBanned
-                        ? "bg-[#111318]/90 border-red-900/50 opacity-45 cursor-not-allowed"
-                        : isWinner
-                        ? "bg-gradient-to-b from-[#a4d007]/25 to-[#171a21] border-[#a4d007] shadow-lg shadow-[#a4d007]/20"
-                        : isAlphaTurn
-                        ? "bg-[#171a21] border-[#2a475e] hover:border-[#66c0f4] cursor-pointer group"
-                        : "bg-[#171a21] border-[#2a475e] hover:border-[#FF5500] cursor-pointer group"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
-                      <span className="text-[#8f98a0]">{map.id}</span>
-                      {isBanned && <span className="text-red-400">VETADO X</span>}
-                      {isWinner && <span className="text-[#a4d007]">ACTIVO *</span>}
-                    </div>
-
-                    <div>
-                      <div className="text-base font-black text-white">
-                        {map.name}
-                      </div>
-                      <div className="text-[11px] text-[#8f98a0]">
-                        {map.tag}
-                      </div>
-                    </div>
-
-                    {!isBanned && !isWinner && (
-                      <div
-                        className={`text-[10px] font-bold opacity-0 group-hover:opacity-100 transition ${
-                          isAlphaTurn ? "text-[#66c0f4]" : "text-[#FF5500]"
+                    return (
+                      <button
+                        key={map.id}
+                        onClick={() => handleBanMap(map.id)}
+                        disabled={isBanned || Boolean(finalMap) || queueSearching}
+                        className={`p-4 rounded-sm border text-left transition flex flex-col justify-between h-32 relative overflow-hidden ${
+                          isBanned
+                            ? "bg-[#111318]/90 border-red-900/50 opacity-45 cursor-not-allowed"
+                            : isWinner
+                            ? "bg-gradient-to-b from-[#a4d007]/25 to-[#171a21] border-[#a4d007] shadow-lg shadow-[#a4d007]/20"
+                            : isAlphaTurn
+                            ? "bg-[#171a21] border-[#2a475e] hover:border-[#66c0f4] cursor-pointer group"
+                            : "bg-[#171a21] border-[#2a475e] hover:border-[#FF5500] cursor-pointer group"
                         }`}
                       >
-                        Vetar ({currentTurn}) -&gt;
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
+                          <span className="text-[#8f98a0]">{map.id}</span>
+                          {isBanned && <span className="text-red-400">VETADO X</span>}
+                          {isWinner && <span className="text-[#a4d007]">ACTIVO *</span>}
+                        </div>
 
-            {finalMap && (
-              <div className="mt-8 p-5 rounded-sm bg-[#171a21] border border-[#a4d007]/60 flex flex-col md:flex-row items-center justify-between gap-4">
-                <div>
-                  <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider">
-                    MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})
-                  </div>
-                  <p className="text-xs text-[#8f98a0] mt-1">
-                    Configuracion lista en /api/match-config?map={finalMap.id}. Ingresa con un clic o registra el marcador.
-                  </p>
+                        <div>
+                          <div className="text-base font-black text-white">
+                            {map.name}
+                          </div>
+                          <div className="text-[11px] text-[#8f98a0]">
+                            {map.tag}
+                          </div>
+                        </div>
+
+                        {!isBanned && !isWinner && (
+                          <div
+                            className={`text-[10px] font-bold opacity-0 group-hover:opacity-100 transition ${
+                              isAlphaTurn ? "text-[#66c0f4]" : "text-[#FF5500]"
+                            }`}
+                          >
+                            Vetar ({currentTurn}) -&gt;
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-                  <a
-                    href="steam://connect/mia1.aimvesports.com:27015"
-                    className="w-full sm:w-auto text-center px-6 py-3 rounded-sm bg-gradient-to-r from-[#a4d007] to-[#7aa600] hover:brightness-110 text-[#171a21] font-black text-xs uppercase tracking-wider transition"
+                {/* Botones de entrada a CS2 al terminar el veto */}
+                {finalMap && (
+                  <div className="mt-6 p-5 rounded-sm bg-[#171a21] border border-[#a4d007]/60 flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider">
+                        MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})
+                      </div>
+                      <p className="text-xs text-[#8f98a0] mt-1">
+                        Configuracion lista en /api/match-config?map={finalMap.id}. Ingresa con un clic o registra el marcador.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                      <a
+                        href="steam://connect/mia1.aimvesports.com:27015"
+                        className="w-full sm:w-auto text-center px-6 py-3 rounded-sm bg-gradient-to-r from-[#a4d007] to-[#7aa600] hover:brightness-110 text-[#171a21] font-black text-xs uppercase tracking-wider transition"
+                      >
+                        &gt; ENTRAR A LA PARTIDA (ABRIR CS2)
+                      </a>
+                      <button
+                        onClick={handleSimulateFinish}
+                        disabled={savingMatch}
+                        className="w-full sm:w-auto px-5 py-3 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-black text-xs uppercase tracking-wider transition cursor-pointer"
+                      >
+                        {savingMatch ? "ACTUALIZANDO ELO..." : "FINALIZAR Y SUBIR RESULTADO"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Columna Derecha (1/3): CHAT EN VIVO DEL EQUIPO DURANTE EL VETO */}
+              <div className="bg-[#171a21] border border-[#2a475e] rounded-sm flex flex-col justify-between h-full min-h-[290px]">
+                <div className="px-4 py-2.5 border-b border-[#2a475e] flex items-center justify-between bg-[#111318]">
+                  <span className="text-xs font-black uppercase tracking-wider text-[#66c0f4]">
+                    CHAT DEL LOBBY (TU EQUIPO)
+                  </span>
+                  <span className="text-[10px] font-bold text-[#a4d007]">
+                    5 Conectados
+                  </span>
+                </div>
+
+                {/* Mensajes del Chat */}
+                <div className="p-3.5 space-y-2.5 overflow-y-auto max-h-52 text-xs">
+                  {chatMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`p-2 rounded-sm ${
+                        msg.isSystem
+                          ? "bg-[#1b2838]/60 border border-[#2a475e]/60 text-[#66c0f4]"
+                          : "bg-[#1b2838] text-[#c7d5e0]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[10px] mb-0.5">
+                        <span className="font-black text-white">{msg.sender}</span>
+                        <span className="text-[#8f98a0]">{msg.time}</span>
+                      </div>
+                      <p className="text-xs leading-snug">{msg.text}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Botones Rapidos de Veto + Input de Chat */}
+                <div className="p-3 border-t border-[#2a475e]/60 bg-[#111318]">
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => sendChatMessage("Baneen Mirage porfa")}
+                      className="text-[10px] px-2 py-1 rounded-sm bg-[#1b2838] hover:bg-[#2a475e] text-[#c7d5e0] border border-[#2a475e] cursor-pointer"
+                    >
+                      &quot;Baneen Mirage&quot;
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendChatMessage("Dejen Dust2 o Inferno")}
+                      className="text-[10px] px-2 py-1 rounded-sm bg-[#1b2838] hover:bg-[#2a475e] text-[#c7d5e0] border border-[#2a475e] cursor-pointer"
+                    >
+                      &quot;Dejen Dust2/Inferno&quot;
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendChatMessage("Quiten Vertigo")}
+                      className="text-[10px] px-2 py-1 rounded-sm bg-[#1b2838] hover:bg-[#2a475e] text-[#c7d5e0] border border-[#2a475e] cursor-pointer"
+                    >
+                      &quot;Quiten Vertigo&quot;
+                    </button>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      sendChatMessage();
+                    }}
+                    className="flex gap-2"
                   >
-                    &gt; ENTRAR A LA PARTIDA (ABRIR CS2)
-                  </a>
-                  <button
-                    onClick={handleSimulateFinish}
-                    disabled={savingMatch}
-                    className="w-full sm:w-auto px-5 py-3 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-black text-xs uppercase tracking-wider transition cursor-pointer"
-                  >
-                    {savingMatch ? "ACTUALIZANDO ELO..." : "FINALIZAR Y SUBIR RESULTADO"}
-                  </button>
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder="Escribe a tu equipo que mapa vetar..."
+                      className="flex-1 px-3 py-1.5 bg-[#171a21] border border-[#2a475e] rounded-sm text-xs text-white focus:outline-none focus:border-[#66c0f4]"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-[#66c0f4] hover:brightness-110 text-[#171a21] font-black text-xs rounded-sm cursor-pointer"
+                    >
+                      Enviar
+                    </button>
+                  </form>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </section>
 
-        {/* SECCION 2: RESULTADOS DE PARTIDAS EN VIVO */}
+        {/* SECCION 2: RESULTADOS DE PARTIDAS RECIENTES (MAXIMO 6 POR DIA) */}
         <section id="resultados" className="mt-24 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#a4d007] text-xs font-black uppercase tracking-widest mb-1">
-                HISTORIAL OFICIAL | BASE DE DATOS EN TIEMPO REAL
+                HISTORIAL DEL DIA | MAXIMO 6 PARTIDAS DIARIAS EN PANTALLA
               </div>
               <h2 className="text-3xl font-black text-white">
-                RESULTADOS DE PARTIDAS RECIENTES
+                RESULTADOS DE PARTIDAS RECIENTES ({matches.length}/6 HOY)
               </h2>
             </div>
             <span className="text-xs text-[#8f98a0] mt-2 md:mt-0">
-              Sincronizado automaticamente al finalizar cada mapa.
+              Mostrando unicamente las ultimas 6 partidas del dia para mantener la web ligera.
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {matches.map((m) => (
+            {matches.slice(0, 6).map((m) => (
               <div
                 key={m.id}
                 className="p-5 rounded-sm bg-[#1b2838]/80 border border-[#2a475e] flex items-center justify-between"
@@ -623,7 +907,7 @@ export default function Home() {
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#FF5500] text-xs font-black uppercase tracking-widest mb-1">
-                TEMPORADA FUNDADORES | RANKING EN VIVO
+                TEMPORADA FUNDADORES | RANKING INDIVIDUAL PREMIER
               </div>
               <h2 className="text-3xl font-black text-white">
                 LEADERBOARD TOP ELO & RECOMPENSAS
