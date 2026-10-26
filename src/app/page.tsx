@@ -38,6 +38,9 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
 
+  // Estado de sesión oficial de Steam
+  const [loggedSteamId, setLoggedSteamId] = useState<string | null>(null);
+
   // Estados del formulario de Fundadores
   const [steamId, setSteamId] = useState("");
   const [email, setEmail] = useState("");
@@ -80,7 +83,30 @@ export default function Home() {
   useEffect(() => {
     fetchMatches();
     fetchLeaderboard();
+
+    // Detectar retorno de Steam OpenID (?steam_id=7656119...)
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const returnedSteamId = params.get("steam_id");
+      const savedSteamId = localStorage.getItem("aimve_steam_id");
+
+      if (returnedSteamId) {
+        localStorage.setItem("aimve_steam_id", returnedSteamId);
+        setLoggedSteamId(returnedSteamId);
+        setSteamId(returnedSteamId);
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (savedSteamId) {
+        setLoggedSteamId(savedSteamId);
+        setSteamId(savedSteamId);
+      }
+    }
   }, []);
+
+  const handleLogoutSteam = () => {
+    localStorage.removeItem("aimve_steam_id");
+    setLoggedSteamId(null);
+    setSteamId("");
+  };
 
   // Lógica del Veto de Mapas (Pick & Ban)
   const remainingMaps = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
@@ -118,7 +144,6 @@ export default function Home() {
       },
     ]);
 
-    // Sumar +25 ELO al capitán ganador y restar -15 ELO al perdedor en leaderboard_players
     const captainWinner = alphaWins ? "YonathanDHC" : "Viper_CCS";
     const captainLoser = alphaWins ? "Viper_CCS" : "YonathanDHC";
 
@@ -169,7 +194,6 @@ export default function Home() {
     }
 
     setRegistered(true);
-    setSteamId("");
     setEmail("");
   };
 
@@ -211,16 +235,28 @@ export default function Home() {
             </a>
           </nav>
 
-          <button
-            onClick={() => {
-              setRegistered(false);
-              setErrorMsg(null);
-              setModalOpen(true);
-            }}
-            className="bg-gradient-to-r from-[#47bfff] to-[#1a44c2] hover:from-[#66c0f4] hover:to-[#2a5bd7] text-white font-bold px-5 py-2.5 rounded-sm text-sm tracking-wide transition shadow-lg shadow-[#1a44c2]/40 border border-[#66c0f4]/40 cursor-pointer"
-          >
-            CONECTAR STEAM
-          </button>
+          {loggedSteamId ? (
+            <div className="flex items-center gap-2">
+              <div className="px-3.5 py-2 rounded-sm bg-[#1b2838] border border-[#a4d007]/60 text-xs font-bold text-white flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#a4d007]"></span>
+                <span>STEAM: ...{loggedSteamId.slice(-6)}</span>
+              </div>
+              <button
+                onClick={handleLogoutSteam}
+                title="Cerrar sesión de Steam"
+                className="px-2.5 py-2 rounded-sm bg-[#1b2838] hover:bg-red-950/60 border border-[#2a475e] hover:border-red-500/50 text-xs text-[#8f98a0] hover:text-red-300 font-bold transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <a
+              href="/api/auth/steam"
+              className="bg-gradient-to-r from-[#47bfff] to-[#1a44c2] hover:from-[#66c0f4] hover:to-[#2a5bd7] text-white font-bold px-5 py-2.5 rounded-sm text-sm tracking-wide transition shadow-lg shadow-[#1a44c2]/40 border border-[#66c0f4]/40 cursor-pointer"
+            >
+              CONECTAR STEAM
+            </a>
+          )}
         </div>
       </header>
 
@@ -228,7 +264,9 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-6 pt-20 pb-24 text-center relative z-10">
         <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-xs font-bold text-[#66c0f4] mb-8 shadow-inner">
           <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-pulse"></span>
-          MATCHMAKING WEB AUTOMATIZADO • 35-55 MS LOW-PING
+          {loggedSteamId
+            ? `CUENTA STEAM VERIFICADA (ID: ${loggedSteamId}) • LISTO PARA COMPETIR`
+            : "MATCHMAKING WEB AUTOMATIZADO • 35-55 MS LOW-PING"}
         </div>
 
         <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-none text-white mb-6">
