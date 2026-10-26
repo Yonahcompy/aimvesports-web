@@ -9,8 +9,8 @@ export async function GET(request: Request) {
   const steamId64 = match ? match[1] : null;
 
   if (!steamId64) {
-    return NextResponse.redirect(${url.origin}/?steam_error=1);
+    return NextResponse.redirect(`${url.origin}/?steam_error=1`);
   }
 
-  return NextResponse.redirect(${url.origin}/?steam_id=);
+  return NextResponse.redirect(`${url.origin}/?steam_id=${steamId64}`);
 }

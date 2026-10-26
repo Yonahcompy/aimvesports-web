@@ -2,7 +2,7 @@
 
 export async function GET(request: Request) {
   const { origin } = new URL(request.url);
-  const returnUrl = ${origin}/api/auth/steam/return;
+  const returnUrl = `${origin}/api/auth/steam/return`;
 
   const params = new URLSearchParams({
     'openid.ns': 'http://specs.openid.net/auth/2.0',
@@ -13,5 +13,5 @@ export async function GET(request: Request) {
     'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
   });
 
-  return NextResponse.redirect(https://steamcommunity.com/openid/login?);
+  return NextResponse.redirect(`https://steamcommunity.com/openid/login?${params.toString()}`);
 }
