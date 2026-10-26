@@ -37,6 +37,62 @@ const PRACTICE_MODES = [
   },
 ];
 
+interface WeeklyMission {
+  id: string;
+  modeId: string;
+  title: string;
+  targetText: string;
+  current: number;
+  goal: number;
+  eloReward: number;
+  eloPenalty: number;
+  bonusLabel: string;
+  claimed: boolean;
+  penalized: boolean;
+}
+
+const INITIAL_MISSIONS: WeeklyMission[] = [
+  {
+    id: "m_aimbotz",
+    modeId: "aim_botz",
+    title: "Calentamiento de Acero (Aim Botz :27016)",
+    targetText: "Elimina 250 Bots con Headshot en el servidor de practica",
+    current: 175,
+    goal: 250,
+    eloReward: 10,
+    eloPenalty: 5,
+    bonusLabel: "+10 ELO & Bono Mano Caliente (+10 ELO en tu prox. victoria 5v5)",
+    claimed: false,
+    penalized: false,
+  },
+  {
+    id: "m_dmffa",
+    modeId: "dm_ffa",
+    title: "Dominio de Duelos (Deathmatch FFA :27017)",
+    targetText: "Consigue 100 bajas con AK-47, M4 o Deagle en FFA",
+    current: 100,
+    goal: 100,
+    eloReward: 15,
+    eloPenalty: 5,
+    bonusLabel: "+15 ELO Directos + 150 Pts Sorteo Mensual Skins",
+    claimed: false,
+    penalized: false,
+  },
+  {
+    id: "m_retakes",
+    modeId: "retakes",
+    title: "Especialista en Defuse (Retakes 5v5 :27018)",
+    targetText: "Gana 20 rondas de Retake plantando o desactivando C4",
+    current: 12,
+    goal: 20,
+    eloReward: 5,
+    eloPenalty: 5,
+    bonusLabel: "+5 ELO & 1 Escudo Protector (0 ELO perdido en tu prox. derrota)",
+    claimed: false,
+    penalized: false,
+  },
+];
+
 // Calculo de ELO inicial tras completar las 6 partidas de calibracion (25 a 100 ELO)
 function getInitialCalibratedElo(winsInSix: number): number {
   const table: Record<number, number> = {
@@ -178,8 +234,14 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Estados de Cola Premier, Mapa de Practica, Veto 5v5 y Temporizador
+  // Estados de Cola Premier, Mapa de Practica, Misiones Semanales (7 dias) y Veto
   const [selectedPractice, setSelectedPractice] = useState(PRACTICE_MODES[0]);
+  const [missions, setMissions] = useState<WeeklyMission[]>(INITIAL_MISSIONS);
+  const [eloShieldActive, setEloShieldActive] = useState(false);
+  const [hotHandBonus, setHotHandBonus] = useState(false);
+  const [missionBanner, setMissionBanner] = useState<string | null>(null);
+  const [weekSecondsLeft, setWeekSecondsLeft] = useState<number>(6 * 86400 + 14 * 3600 + 42 * 60);
+
   const [queueSearching, setQueueSearching] = useState(false);
   const [queueCount, setQueueCount] = useState(10);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
@@ -194,14 +256,14 @@ export default function Home() {
     {
       id: 1,
       sender: "SISTEMA",
-      text: "Emparejamiento Premier completado (10/10). Recuerda: los nuevos jugadores calibran su ELO (25 a 100) al cumplir 6 partidas.",
+      text: "Emparejamiento Premier completado (10/10). Recuerda completar tus misiones semanales en los mapas de practica en 7 dias para ganar bonos y evitar -5 ELO.",
       time: "Ahora",
       isSystem: true,
     },
     {
       id: 2,
       sender: "MaracayAim",
-      text: "Estaba calentando en el mapa de practica Aim Botz, vetemos Vertigo y juguemos Mirage.",
+      text: "Acabo de completar la mision semanal de Deathmatch FFA (+15 ELO), vamos activos a ganar Mirage.",
       time: "Hace 5s",
     },
     {
@@ -211,6 +273,21 @@ export default function Home() {
       time: "Hace 2s",
     },
   ]);
+
+  // Reloj regresivo del ciclo semanal de 7 dias para las misiones
+  useEffect(() => {
+    const t = setInterval(() => {
+      setWeekSecondsLeft((prev) => (prev > 0 ? prev - 1 : 7 * 86400));
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const formatWeekRemaining = (secs: number) => {
+    const d = Math.floor(secs / 86400);
+    const h = Math.floor((secs % 86400) / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return `${d}d ${h}h ${m}m`;
+  };
 
   // Cargar unicamente hasta 6 partidas del dia actual desde Supabase
   const fetchMatches = async () => {
@@ -282,7 +359,71 @@ export default function Home() {
 
   const currentPlayerProfile = leaderboard.find(
     (p) => p.steam_id && p.steam_id === loggedSteamId
-  );
+  ) || leaderboard[0];
+
+  // Reclamar recompensa de Mision Semanal completada (+ELO real en Supabase + Escudo / Bono)
+  const handleClaimMission = async (missionId: string) => {
+    const targetMission = missions.find((m) => m.id === missionId);
+    if (!targetMission || targetMission.claimed || targetMission.current < targetMission.goal) return;
+
+    setMissions((prev) =>
+      prev.map((m) => (m.id === missionId ? { ...m, claimed: true } : m))
+    );
+
+    if (missionId === "m_aimbotz") setHotHandBonus(true);
+    if (missionId === "m_retakes") setEloShieldActive(true);
+
+    if (currentPlayerProfile) {
+      const updatedElo = currentPlayerProfile.elo + targetMission.eloReward;
+      await supabase
+        .from("leaderboard_players")
+        .update({ elo: updatedElo })
+        .eq("id", currentPlayerProfile.id);
+      await fetchLeaderboard();
+    }
+
+    setMissionBanner(
+      `Mision completada: +${targetMission.eloReward} ELO acreditados a tu perfil (${targetMission.title}).`
+    );
+  };
+
+  // Sumar progreso de entrenamiento en una mision (para probar antes de cerrar semana)
+  const handleAdvanceMissionProgress = (missionId: string) => {
+    setMissions((prev) =>
+      prev.map((m) =>
+        m.id === missionId ? { ...m, current: m.goal, penalized: false } : m
+      )
+    );
+  };
+
+  // Aplicar corte de 7 dias: cada mision NO completada descuenta -5 ELO en Supabase
+  const handleExpireWeekCheck = async () => {
+    const incomplete = missions.filter((m) => m.current < m.goal && !m.penalized);
+    if (incomplete.length === 0) {
+      setMissionBanner(
+        "Corte de 7 dias verificado: Completaste todas tus misiones semanales. 0 penalizaciones de ELO!"
+      );
+      return;
+    }
+
+    const totalPenalty = incomplete.length * 5;
+    setMissions((prev) =>
+      prev.map((m) => (m.current < m.goal ? { ...m, penalized: true } : m))
+    );
+
+    if (currentPlayerProfile) {
+      const nextElo = Math.max(25, currentPlayerProfile.elo - totalPenalty);
+      await supabase
+        .from("leaderboard_players")
+        .update({ elo: nextElo })
+        .eq("id", currentPlayerProfile.id);
+      await fetchLeaderboard();
+    }
+
+    setMissionBanner(
+      `Plazo de 7 dias vencido: Se descontaron -${totalPenalty} ELO (-5 ELO por cada una de las ${incomplete.length} misiones de practica sin completar).`
+    );
+  };
 
   // Simulador de Busqueda de Partida Solo Queue
   const handleStartSoloQueue = () => {
@@ -307,7 +448,8 @@ export default function Home() {
   const remainingMaps = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
   const finalMap = remainingMaps.length === 1 ? remainingMaps[0] : null;
   const isAlphaTurn = bannedMaps.length % 2 === 0;
-  const currentTurn = isAlphaTurn ? "Equipo YonathanDHC" : "Equipo Viper_CCS";
+  const captainAlphaName = currentPlayerProfile ? currentPlayerProfile.nickname : "YonathanDHC";
+  const currentTurn = isAlphaTurn ? `Equipo ${captainAlphaName}` : "Equipo Viper_CCS";
 
   // Reloj de 15 segundos por turno con Auto-Veto
   useEffect(() => {
@@ -341,7 +483,7 @@ export default function Home() {
         ...prev,
         {
           id: Date.now(),
-          sender: isAlphaTurn ? "YonathanDHC (Capitan)" : "Viper_CCS (Capitan)",
+          sender: isAlphaTurn ? `${captainAlphaName} (Capitan)` : "Viper_CCS (Capitan)",
           text: `Veto confirmado: descartado ${mapObj.name}.`,
           time: "Ahora",
           isSystem: true,
@@ -359,13 +501,11 @@ export default function Home() {
     const msgToSend = (customText ?? chatInput).trim();
     if (!msgToSend) return;
 
-    const senderName = currentPlayerProfile ? currentPlayerProfile.nickname : "YonathanDHC";
-
     setChatMessages((prev) => [
       ...prev,
       {
         id: Date.now(),
-        sender: senderName,
+        sender: captainAlphaName,
         text: msgToSend,
         time: "Ahora",
       },
@@ -376,18 +516,18 @@ export default function Home() {
     }
   };
 
-  // Finalizar partida aplicando la regla de Calibracion (6 partidas -> 25 a 100 ELO) o suma normal
+  // Finalizar partida aplicando Calibracion (6 partidas -> 25-100 ELO), Bono Mano Caliente y Escudo de ELO
   const handleSimulateFinish = async () => {
     if (!finalMap) return;
     setSavingMatch(true);
 
     const roundsLoser = Math.floor(Math.random() * 10) + 2;
     const alphaWins = Math.random() > 0.5;
-    const winnerTeam = alphaWins ? "Equipo YonathanDHC" : "Equipo Viper_CCS";
+    const winnerTeam = alphaWins ? `Equipo ${captainAlphaName}` : "Equipo Viper_CCS";
 
     await supabase.from("matches").insert([
       {
-        team_a: "Equipo YonathanDHC",
+        team_a: `Equipo ${captainAlphaName}`,
         team_b: "Equipo Viper_CCS",
         selected_map: finalMap.id,
         banned_maps: bannedMaps,
@@ -398,19 +538,21 @@ export default function Home() {
       },
     ]);
 
-    const captainWinner = alphaWins ? "YonathanDHC" : "Viper_CCS";
-    const captainLoser = alphaWins ? "Viper_CCS" : "YonathanDHC";
-
-    const winnerRow = leaderboard.find((p) => p.nickname === captainWinner);
-    const loserRow = leaderboard.find((p) => p.nickname === captainLoser);
+    const winnerRow = alphaWins ? currentPlayerProfile : leaderboard.find((p) => p.nickname === "Viper_CCS");
+    const loserRow = alphaWins ? leaderboard.find((p) => p.nickname === "Viper_CCS") : currentPlayerProfile;
 
     if (winnerRow) {
       const newWins = winnerRow.wins + 1;
       const newTotal = newWins + winnerRow.losses;
+      const stompBonus = roundsLoser <= 4 ? 4 : 0;
+      const warmupBonus = alphaWins && hotHandBonus ? 10 : 0;
+
       const nextElo =
         newTotal <= 6
           ? getInitialCalibratedElo(newWins)
-          : winnerRow.elo + 25;
+          : winnerRow.elo + 25 + stompBonus + warmupBonus;
+
+      if (alphaWins && hotHandBonus) setHotHandBonus(false);
 
       await supabase
         .from("leaderboard_players")
@@ -421,10 +563,19 @@ export default function Home() {
     if (loserRow) {
       const newLosses = loserRow.losses + 1;
       const newTotal = loserRow.wins + newLosses;
+      const isProtectedByShield = !alphaWins && eloShieldActive;
+
       const nextElo =
         newTotal <= 6
           ? getInitialCalibratedElo(loserRow.wins)
-          : Math.max(25, loserRow.elo - 15);
+          : isProtectedByShield
+          ? loserRow.elo
+          : Math.max(25, loserRow.elo - 18);
+
+      if (isProtectedByShield) {
+        setEloShieldActive(false);
+        setMissionBanner("Tu Escudo Protector de Retakes absorbio la derrota: perdiste 0 ELO!");
+      }
 
       await supabase
         .from("leaderboard_players")
@@ -492,7 +643,7 @@ export default function Home() {
 
           <nav className="hidden md:flex items-center gap-7 text-sm font-semibold text-[#c7d5e0]">
             <a href="#practica" className="hover:text-[#a4d007] transition">
-              Mapa de Practica
+              Practica & Misiones (7d)
             </a>
             <a href="#lobby" className="hover:text-[#66c0f4] transition">
               Solo Queue & Veto
@@ -522,6 +673,11 @@ export default function Home() {
                     >
                       {currentPlayerProfile.elo} ELO
                     </span>
+                    {eloShieldActive && (
+                      <span className="px-1.5 py-0.5 rounded-sm bg-[#66c0f4] text-[#171a21] text-[9px] font-black">
+                        ESCUDO ACTIVO
+                      </span>
+                    )}
                   </div>
                 ) : (
                   <span>STEAM: ...{loggedSteamId.slice(-6)}</span>
@@ -551,8 +707,8 @@ export default function Home() {
         <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-xs font-bold text-[#66c0f4] mb-8 shadow-inner">
           <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-pulse"></span>
           {currentPlayerProfile
-            ? `SOLO QUEUE PREMIER ACTIVO | JUGADOR: ${currentPlayerProfile.nickname.toUpperCase()} (${currentPlayerProfile.elo} ELO)`
-            : "CALIBRACION DE 6 PARTIDAS (25-100 ELO INICIAL) | SERVIDOR DE PRACTICA 24/7"}
+            ? `JUGADOR VERIFICADO: ${currentPlayerProfile.nickname.toUpperCase()} (${currentPlayerProfile.elo} ELO) | MISIONES SEMANALES ACTIVAS`
+            : "CALIBRACION DE 6 PARTIDAS (25-100 ELO) | MISIONES DE PRACTICA CADA 7 DIAS"}
         </div>
 
         <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-none text-white mb-6">
@@ -563,7 +719,7 @@ export default function Home() {
         </h1>
 
         <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
-          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), calienta punteria en el <span className="text-[#a4d007] font-semibold">Mapa de Practica</span> mientras buscas cola y evoluciona el brillo de tu ELO hasta <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
+          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), cumple tus <span className="text-[#a4d007] font-semibold">Misiones Semanales en el Mapa de Practica</span> (7 dias de plazo o <span className="text-red-400 font-bold">-5 ELO</span> por mision incompleta) y brilla hasta <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -578,11 +734,11 @@ export default function Home() {
             href="#practica"
             className="w-full sm:w-auto px-8 py-4 rounded-sm border border-[#66c0f4]/60 hover:border-[#66c0f4] bg-[#1b2838]/90 hover:bg-[#2a475e]/60 text-white font-bold text-base transition"
           >
-            ENTRAR AL MAPA DE PRACTICA
+            MAPA DE PRACTICA & MISIONES (7D)
           </a>
         </div>
 
-        {/* NUEVA SECCION: SERVIDOR DE PRACTICA Y WARMUP 24/7 MIENTRAS ESPERAS PARTIDA */}
+        {/* SECCION: SERVIDOR DE PRACTICA 24/7 + MISIONES SEMANALES (7 DIAS / -5 ELO PENALIZACION) */}
         <section id="practica" className="mt-20 text-left">
           <div className="p-6 rounded-sm bg-gradient-to-r from-[#1b2838] via-[#171a21] to-[#1b2838] border border-[#66c0f4]/50 shadow-xl">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -592,10 +748,10 @@ export default function Home() {
                   WARMUP SERVER 24/7 | NO PIERDES TU LUGAR EN LA COLA 5v5
                 </div>
                 <h2 className="text-2xl md:text-3xl font-black text-white">
-                  MAPA DE PRACTICA & CALENTAMIENTO EN VIVO
+                  MAPA DE PRACTICA & MISIONES SEMANALES
                 </h2>
                 <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-                  Si la cola 5v5 esta llenandose o quieres practicar aim antes de competir, entra directo a nuestra isla de entrenamiento en Miami. Cuando tu partida 5v5 llegue a 10/10 recibirás el aviso para pasar al Veto.
+                  Entrena punteria mientras se llena el Lobby 5v5. Tienes <span className="text-white font-bold">7 dias</span> para completar las misiones semanales: ganarás ELO directo y escudos, pero cada mision no completada al cierre de la semana descuenta <span className="text-red-400 font-bold">-5 ELO</span>.
                 </p>
               </div>
 
@@ -635,6 +791,134 @@ export default function Home() {
                   </button>
                 );
               })}
+            </div>
+
+            {/* PANEL DE MISIONES SEMANALES (7 DIAS DE PLAZO / -5 ELO SI NO SE CUMPLE) */}
+            <div className="mt-6 pt-6 border-t border-[#2a475e]">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="text-xs font-black uppercase tracking-wider text-white">
+                    MISIONES SEMANALES DE ENTRENAMIENTO
+                  </span>
+                  <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/50 text-[#66c0f4]">
+                    CIERRE EN: {formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)
+                  </span>
+                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-sm bg-red-950/70 border border-red-500/50 text-red-300">
+                    INCUMPLIMIENTO: -5 ELO POR MISION
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleExpireWeekCheck}
+                  className="text-[11px] px-3 py-1.5 rounded-sm bg-[#2a475e]/70 hover:bg-red-600/80 text-white font-bold transition cursor-pointer"
+                >
+                  Simular Corte de 7 Dias (Verificar -5 ELO)
+                </button>
+              </div>
+
+              {missionBanner && (
+                <div className="mb-4 p-3 rounded-sm bg-[#111318] border border-[#a4d007] text-xs text-[#a4d007] font-bold flex items-center justify-between">
+                  <span>{missionBanner}</span>
+                  <button
+                    type="button"
+                    onClick={() => setMissionBanner(null)}
+                    className="text-[#8f98a0] hover:text-white font-black ml-4 cursor-pointer"
+                  >
+                    X
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {missions.map((m) => {
+                  const pct = Math.min(100, Math.round((m.current / m.goal) * 100));
+                  const completed = m.current >= m.goal;
+
+                  return (
+                    <div
+                      key={m.id}
+                      className={`p-4 rounded-sm border flex flex-col justify-between ${
+                        m.claimed
+                          ? "bg-[#111318]/90 border-[#a4d007]/60"
+                          : m.penalized
+                          ? "bg-red-950/25 border-red-500/60"
+                          : completed
+                          ? "bg-[#171a21] border-[#a4d007]"
+                          : "bg-[#171a21] border-[#2a475e]"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
+                          <span className="text-[#66c0f4]">PLAZO: 7 DIAS</span>
+                          {m.claimed ? (
+                            <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
+                          ) : m.penalized ? (
+                            <span className="text-red-400">VENCIDA (-{m.eloPenalty} ELO)</span>
+                          ) : completed ? (
+                            <span className="text-[#a4d007] animate-pulse">LISTA PARA RECLAMAR</span>
+                          ) : (
+                            <span className="text-red-300">SI NO CUMPLES: -{m.eloPenalty} ELO</span>
+                          )}
+                        </div>
+
+                        <div className="text-sm font-black text-white">{m.title}</div>
+                        <p className="text-[11px] text-[#8f98a0] mt-1">{m.targetText}</p>
+
+                        {/* Barra de Progreso */}
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between text-[11px] font-mono font-bold mb-1">
+                            <span className="text-[#c7d5e0]">
+                              Progreso: {m.current} / {m.goal}
+                            </span>
+                            <span className={completed ? "text-[#a4d007]" : "text-[#66c0f4]"}>
+                              {pct}%
+                            </span>
+                          </div>
+                          <div className="w-full h-2 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/60">
+                            <div
+                              className={`h-full transition-all duration-500 ${
+                                completed ? "bg-[#a4d007]" : "bg-[#66c0f4]"
+                              }`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-2.5 text-[10px] font-bold text-[#a4d007]">
+                          Recompensa: {m.bonusLabel}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-[#2a475e]/40 flex items-center gap-2">
+                        {m.claimed ? (
+                          <span className="w-full text-center py-1.5 rounded-sm bg-[#a4d007]/15 text-[#a4d007] text-[11px] font-black uppercase">
+                            Mision Semanal Completada OK
+                          </span>
+                        ) : completed ? (
+                          <button
+                            type="button"
+                            onClick={() => handleClaimMission(m.id)}
+                            className="w-full py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] text-[11px] font-black uppercase transition cursor-pointer"
+                          >
+                            Reclamar +{m.eloReward} ELO y Bono
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleAdvanceMissionProgress(m.id)}
+                              className="w-full py-1.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white text-[11px] font-bold uppercase transition cursor-pointer"
+                            >
+                              Completar en Practica ({m.goal}/{m.goal})
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </section>
@@ -680,9 +964,8 @@ export default function Home() {
           </div>
 
           <div className="p-6 rounded-sm bg-[#1b2838]/90 border border-[#2a475e] shadow-xl">
-            {/* Cabecera Dinamica de los 2 Bandos de Desconocidos (5 vs 5) + Reloj Central */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start mb-8 pb-6 border-b border-[#2a475e]/60">
-              {/* BANDO 1: EQUIPO YONATHANDHC */}
+              {/* BANDO 1 */}
               <div
                 className={`p-4 rounded-sm border transition-all duration-300 ${
                   finalMap
@@ -699,7 +982,7 @@ export default function Home() {
                     </span>
                     <div>
                       <div className="text-white font-black text-base leading-none">
-                        EQUIPO YONATHANDHC
+                        EQUIPO {captainAlphaName.toUpperCase()}
                       </div>
                       <span className="text-[10px] text-[#66c0f4] font-bold">
                         5 Jugadores Individuales | Solo Queue
@@ -721,7 +1004,9 @@ export default function Home() {
 
                 <div className="space-y-1.5">
                   {TEAM_ALPHA_ROSTER.map((p, idx) => {
-                    const style = getEloTierStyle(p.elo, p.matches);
+                    const displayNick = idx === 0 ? captainAlphaName : p.nick;
+                    const displayElo = idx === 0 && currentPlayerProfile ? currentPlayerProfile.elo : p.elo;
+                    const style = getEloTierStyle(displayElo, p.matches);
                     return (
                       <div
                         key={idx}
@@ -729,7 +1014,7 @@ export default function Home() {
                       >
                         <div className="flex items-center gap-2">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
-                          <span className="font-bold text-white">{p.nick}</span>
+                          <span className="font-bold text-white">{displayNick}</span>
                           <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
                             {p.country}
                           </span>
@@ -740,7 +1025,7 @@ export default function Home() {
                           )}
                         </div>
                         <span className={`font-mono text-[10px] px-2 py-0.5 rounded-sm font-bold ${style.badgeClass}`}>
-                          {p.matches < 6 ? `CALIBRANDO (${p.matches}/6)` : `${p.elo} ELO`}
+                          {p.matches < 6 ? `CALIBRANDO (${p.matches}/6)` : `${displayElo} ELO`}
                         </span>
                       </div>
                     );
@@ -759,7 +1044,7 @@ export default function Home() {
                       {queueCount} / 10
                     </div>
                     <p className="text-[11px] text-[#8f98a0] mt-2 mb-3">
-                      ¿Tarda en llenar? Entra al Mapa de Practica sin perder tu turno.
+                      Aprovecha para avanzar tus misiones semanales en el Mapa de Practica.
                     </p>
                     <a
                       href={`steam://connect/mia1.aimvesports.com:${selectedPractice.port}`}
@@ -808,7 +1093,7 @@ export default function Home() {
                 )}
               </div>
 
-              {/* BANDO 2: EQUIPO VIPER_CCS */}
+              {/* BANDO 2 */}
               <div
                 className={`p-4 rounded-sm border transition-all duration-300 ${
                   finalMap
@@ -1129,7 +1414,6 @@ export default function Home() {
             </span>
           </div>
 
-          {/* Leyenda Visual de Colores por Nivel de ELO */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 mb-6 p-4 rounded-sm bg-[#111318] border border-[#2a475e]">
             <div className="p-2.5 rounded-sm bg-[#171a21] border border-dashed border-[#8f98a0]/50 text-center">
               <div className="text-[10px] font-black text-[#8f98a0]">CALIBRACION</div>
@@ -1144,17 +1428,17 @@ export default function Home() {
             <div className="p-2.5 rounded-sm bg-[#a4d007]/15 border border-[#a4d007]/60 text-center">
               <div className="text-[10px] font-black text-[#a4d007]">BRONCE</div>
               <div className="text-xs font-mono font-bold text-[#a4d007] mt-0.5">101 - 499 ELO</div>
-              <div className="text-[9px] text-[#c7d5e0]">Verde Táctico</div>
+              <div className="text-[9px] text-[#c7d5e0]">Verde Tactico</div>
             </div>
             <div className="p-2.5 rounded-sm bg-[#66c0f4]/15 border border-[#66c0f4] text-center shadow-sm shadow-[#66c0f4]/30">
               <div className="text-[10px] font-black text-[#66c0f4]">ZAFIRO</div>
               <div className="text-xs font-mono font-bold text-[#66c0f4] mt-0.5">500 - 999 ELO</div>
-              <div className="text-[9px] text-[#c7d5e0]">Azul Eléctrico</div>
+              <div className="text-[9px] text-[#c7d5e0]">Azul Electrico</div>
             </div>
             <div className="p-2.5 rounded-sm bg-purple-500/20 border border-purple-400 text-center shadow-md shadow-purple-500/30">
               <div className="text-[10px] font-black text-purple-300">AMATISTA</div>
               <div className="text-xs font-mono font-bold text-purple-300 mt-0.5">1,000 - 1,999</div>
-              <div className="text-[9px] text-purple-200">Neón Púrpura</div>
+              <div className="text-[9px] text-purple-200">Neon Purpura</div>
             </div>
             <div className="p-2.5 rounded-sm bg-[#FF5500]/25 border border-[#FF5500] text-center shadow-lg shadow-[#FF5500]/30">
               <div className="text-[10px] font-black text-[#ff8547]">FENIX</div>
@@ -1293,7 +1577,7 @@ export default function Home() {
                       required
                       value={steamId}
                       onChange={(e) => setSteamId(e.target.value)}
-                      placeholder="Ej. YonathanDHC o link de Steam"
+                      placeholder="Ej. Doge Head Attack o link de Steam"
                       className="w-full px-3.5 py-2.5 bg-[#171a21] border border-[#2a475e] rounded-sm text-sm text-white focus:outline-none focus:border-[#66c0f4]"
                     />
                   </div>
