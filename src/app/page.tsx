@@ -257,14 +257,19 @@ export default function Home() {
       const returnedSteamId = params.get("steam_id");
       const savedSteamId = localStorage.getItem("aimve_steam_id");
 
+      const activeSteam = returnedSteamId || savedSteamId;
       if (returnedSteamId) {
         localStorage.setItem("aimve_steam_id", returnedSteamId);
-        setLoggedSteamId(returnedSteamId);
-        setSteamId(returnedSteamId);
         window.history.replaceState({}, "", window.location.pathname);
-      } else if (savedSteamId) {
-        setLoggedSteamId(savedSteamId);
-        setSteamId(savedSteamId);
+      }
+      if (activeSteam) {
+        setLoggedSteamId(activeSteam);
+        setSteamId(activeSteam);
+        fetch("/api/player-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ steam_id: activeSteam }),
+        }).then(() => fetchLeaderboard());
       }
     }
   }, []);
