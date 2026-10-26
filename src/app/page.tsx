@@ -1,11 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
   const [registered, setRegistered] = useState(false);
+
+  // Estados para capturar los datos del formulario
+  const [steamId, setSteamId] = useState("");
+  const [email, setEmail] = useState("");
+  const [country, setCountry] = useState("Venezuela (Fibra / Low-Ping)");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const copyServerIp = (ip: string) => {
     navigator.clipboard.writeText(`connect ${ip}`);
@@ -13,9 +21,33 @@ export default function Home() {
     setTimeout(() => setCopiedIp(null), 2500);
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+    setErrorMsg(null);
+
+    const { error } = await supabase.from("early_access_players").insert([
+      {
+        steam_id: steamId.trim(),
+        email: email.trim().toLowerCase(),
+        country: country,
+      },
+    ]);
+
+    setLoading(false);
+
+    if (error) {
+      if (error.code === "23505") {
+        setErrorMsg("Este correo electrónico ya está registrado en la lista de fundadores.");
+      } else {
+        setErrorMsg("Ocurrió un error al registrar tu solicitud. Intenta nuevamente.");
+      }
+      return;
+    }
+
     setRegistered(true);
+    setSteamId("");
+    setEmail("");
   };
 
   return (
@@ -61,6 +93,7 @@ export default function Home() {
           <button
             onClick={() => {
               setRegistered(false);
+              setErrorMsg(null);
               setModalOpen(true);
             }}
             className="bg-gradient-to-r from-[#47bfff] to-[#1a44c2] hover:from-[#66c0f4] hover:to-[#2a5bd7] text-white font-bold px-5 py-2.5 rounded-sm text-sm tracking-wide transition shadow-lg shadow-[#1a44c2]/40 border border-[#66c0f4]/40 cursor-pointer"
@@ -96,6 +129,7 @@ export default function Home() {
           <button
             onClick={() => {
               setRegistered(false);
+              setErrorMsg(null);
               setModalOpen(true);
             }}
             className="w-full sm:w-auto bg-gradient-to-r from-[#FF5500] to-[#e03e00] hover:from-[#ff6a1f] hover:to-[#ff4500] text-white font-black px-8 py-4 rounded-sm text-base tracking-wide transition shadow-xl shadow-[#FF5500]/25 border border-orange-400/30 cursor-pointer"
@@ -344,6 +378,12 @@ export default function Home() {
                   Regístrate para recibir tu invitación a la Beta Cerrada, insignia de Fundador y acceso a los sorteos de Skins de lanzamiento.
                 </p>
 
+                {errorMsg && (
+                  <div className="mb-4 p-3 rounded-sm bg-red-950/60 border border-red-500/50 text-xs text-red-300 font-semibold">
+                    {errorMsg}
+                  </div>
+                )}
+
                 <div className="space-y-4 mb-6">
                   <div>
                     <label className="block text-xs font-bold uppercase text-[#c7d5e0] mb-1">
@@ -352,6 +392,8 @@ export default function Home() {
                     <input
                       type="text"
                       required
+                      value={steamId}
+                      onChange={(e) => setSteamId(e.target.value)}
                       placeholder="Ej. YonathanDHC o link de Steam"
                       className="w-full px-3.5 py-2.5 bg-[#171a21] border border-[#2a475e] rounded-sm text-sm text-white focus:outline-none focus:border-[#66c0f4]"
                     />
@@ -363,6 +405,8 @@ export default function Home() {
                     <input
                       type="email"
                       required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       placeholder="tucorreo@gmail.com"
                       className="w-full px-3.5 py-2.5 bg-[#171a21] border border-[#2a475e] rounded-sm text-sm text-white focus:outline-none focus:border-[#66c0f4]"
                     />
@@ -371,21 +415,26 @@ export default function Home() {
                     <label className="block text-xs font-bold uppercase text-[#c7d5e0] mb-1">
                       País de Conexión
                     </label>
-                    <select className="w-full px-3.5 py-2.5 bg-[#171a21] border border-[#2a475e] rounded-sm text-sm text-white focus:outline-none focus:border-[#66c0f4]">
-                      <option>Venezuela (Fibra / Low-Ping)</option>
-                      <option>Colombia</option>
-                      <option>Panamá / Caribe</option>
-                      <option>Ecuador / Perú</option>
-                      <option>Otro país LATAM</option>
+                    <select
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-[#171a21] border border-[#2a475e] rounded-sm text-sm text-white focus:outline-none focus:border-[#66c0f4]"
+                    >
+                      <option value="Venezuela (Fibra / Low-Ping)">Venezuela (Fibra / Low-Ping)</option>
+                      <option value="Colombia">Colombia</option>
+                      <option value="Panamá / Caribe">Panamá / Caribe</option>
+                      <option value="Ecuador / Perú">Ecuador / Perú</option>
+                      <option value="Otro país LATAM">Otro país LATAM</option>
                     </select>
                   </div>
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-[#FF5500] to-[#e03e00] hover:from-[#ff6a1f] hover:to-[#ff4500] text-white font-black py-3 rounded-sm text-sm tracking-wide transition cursor-pointer"
+                  disabled={loading}
+                  className="w-full bg-gradient-to-r from-[#FF5500] to-[#e03e00] hover:from-[#ff6a1f] hover:to-[#ff4500] disabled:opacity-50 text-white font-black py-3 rounded-sm text-sm tracking-wide transition cursor-pointer"
                 >
-                  ASEGURAR MI CUPO DE FUNDADOR
+                  {loading ? "REGISTRANDO EN BASE DE DATOS..." : "ASEGURAR MI CUPO DE FUNDADOR"}
                 </button>
               </form>
             ) : (
