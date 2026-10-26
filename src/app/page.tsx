@@ -4,12 +4,12 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 const CS2_MAPS = [
-  { id: "de_mirage", name: "Mirage", tag: "Cl¡sico 5v5" },
-  { id: "de_inferno", name: "Inferno", tag: "Control t¡ctico" },
+  { id: "de_mirage", name: "Mirage", tag: "Clasico 5v5" },
+  { id: "de_inferno", name: "Inferno", tag: "Control tactico" },
   { id: "de_dust2", name: "Dust II", tag: "Duelos de Aim" },
   { id: "de_nuke", name: "Nuke", tag: "Doble planta" },
   { id: "de_ancient", name: "Ancient", tag: "Selva / Medio" },
-  { id: "de_anubis", name: "Anubis", tag: "Rotacin r¡pida" },
+  { id: "de_anubis", name: "Anubis", tag: "Rotacion rapida" },
   { id: "de_vertigo", name: "Vertigo", tag: "Combate corto" },
 ];
 
@@ -27,6 +27,7 @@ interface MatchItem {
 interface LeaderboardPlayer {
   id: number;
   nickname: string;
+  steam_id: string | null;
   elo: number;
   wins: number;
   losses: number;
@@ -38,7 +39,7 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
 
-  // Estado de sesin oficial de Steam
+  // Estado de sesion oficial de Steam
   const [loggedSteamId, setLoggedSteamId] = useState<string | null>(null);
 
   // Estados del formulario de Fundadores
@@ -54,7 +55,6 @@ export default function Home() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
   const [savingMatch, setSavingMatch] = useState(false);
 
-  // Cargar resultados de partidas desde Supabase
   const fetchMatches = async () => {
     const { data } = await supabase
       .from("matches")
@@ -67,7 +67,6 @@ export default function Home() {
     }
   };
 
-  // Cargar Leaderboard real ordenado por ELO desde Supabase
   const fetchLeaderboard = async () => {
     const { data } = await supabase
       .from("leaderboard_players")
@@ -84,7 +83,6 @@ export default function Home() {
     fetchMatches();
     fetchLeaderboard();
 
-    // Detectar retorno de Steam OpenID (?steam_id=7656119...)
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const returnedSteamId = params.get("steam_id");
@@ -108,7 +106,12 @@ export default function Home() {
     setSteamId("");
   };
 
-  // Lgica del Veto de Mapas (Pick & Ban)
+  // Buscar si el SteamID conectado pertenece a un jugador del Leaderboard
+  const currentPlayerProfile = leaderboard.find(
+    (p) => p.steam_id && p.steam_id === loggedSteamId
+  );
+
+  // Logica del Veto de Mapas (Pick & Ban)
   const remainingMaps = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
   const finalMap = remainingMaps.length === 1 ? remainingMaps[0] : null;
   const currentTurn = bannedMaps.length % 2 === 0 ? "Equipo Alpha" : "Equipo Omega";
@@ -186,9 +189,9 @@ export default function Home() {
 
     if (error) {
       if (error.code === "23505") {
-        setErrorMsg("Este correo electrnico ya est¡ registrado en la lista de fundadores.");
+        setErrorMsg("Este correo electronico ya esta registrado en la lista de fundadores.");
       } else {
-        setErrorMsg("Ocurri un error al registrar tu solicitud. Intenta nuevamente.");
+        setErrorMsg("Ocurrio un error al registrar tu solicitud. Intenta nuevamente.");
       }
       return;
     }
@@ -199,10 +202,9 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#171a21] text-[#c7d5e0] font-sans selection:bg-[#66c0f4] selection:text-[#171a21] relative overflow-x-hidden">
-      {/* Luces ambientales estilo Steam + AimVe */}
       <div className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-tr from-[#1b2838] via-[#66c0f4]/15 to-[#FF5500]/10 blur-[130px] rounded-full" />
 
-      {/* Barra de Navegacin Superior (Header) */}
+      {/* Barra de Navegacion Superior (Header) */}
       <header className="border-b border-[#2a475e]/60 bg-[#171a21]/90 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3.5 group cursor-pointer">
@@ -237,16 +239,25 @@ export default function Home() {
 
           {loggedSteamId ? (
             <div className="flex items-center gap-2">
-              <div className="px-3.5 py-2 rounded-sm bg-[#1b2838] border border-[#a4d007]/60 text-xs font-bold text-white flex items-center gap-2">
+              <div className="px-3.5 py-2 rounded-sm bg-[#1b2838] border border-[#a4d007]/60 text-xs font-bold text-white flex items-center gap-2.5">
                 <span className="w-2 h-2 rounded-full bg-[#a4d007]"></span>
-                <span>STEAM: ...{loggedSteamId.slice(-6)}</span>
+                {currentPlayerProfile ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-black">{currentPlayerProfile.nickname}</span>
+                    <span className="px-1.5 py-0.5 rounded-sm bg-[#171a21] border border-[#66c0f4]/40 text-[#66c0f4] font-mono text-[11px]">
+                      {currentPlayerProfile.elo} ELO
+                    </span>
+                  </div>
+                ) : (
+                  <span>STEAM: ...{loggedSteamId.slice(-6)}</span>
+                )}
               </div>
               <button
                 onClick={handleLogoutSteam}
-                title="Cerrar sesin de Steam"
+                title="Cerrar sesion de Steam"
                 className="px-2.5 py-2 rounded-sm bg-[#1b2838] hover:bg-red-950/60 border border-[#2a475e] hover:border-red-500/50 text-xs text-[#8f98a0] hover:text-red-300 font-bold transition cursor-pointer"
               >
-                
+                X
               </button>
             </div>
           ) : (
@@ -260,13 +271,15 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Seccin Principal (Hero) */}
+      {/* Seccion Principal (Hero) */}
       <main className="max-w-7xl mx-auto px-6 pt-20 pb-24 text-center relative z-10">
         <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-xs font-bold text-[#66c0f4] mb-8 shadow-inner">
           <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-pulse"></span>
-          {loggedSteamId
-            ? `CUENTA STEAM VERIFICADA (ID: ${loggedSteamId})  LISTO PARA COMPETIR`
-            : "MATCHMAKING WEB AUTOMATIZADO  35-55 MS LOW-PING"}
+          {currentPlayerProfile
+            ? `BIENVENIDO ${currentPlayerProfile.nickname.toUpperCase()} (${currentPlayerProfile.elo} ELO) | STEAM ID: ${loggedSteamId}`
+            : loggedSteamId
+            ? `CUENTA STEAM VERIFICADA (ID: ${loggedSteamId}) | LISTO PARA COMPETIR`
+            : "MATCHMAKING WEB AUTOMATIZADO | 35-55 MS LOW-PING"}
         </div>
 
         <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-none text-white mb-6">
@@ -277,7 +290,7 @@ export default function Home() {
         </h1>
 
         <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
-          Veto de mapas directamente en la web, lanzamiento autom¡tico de CS2 sin usar consola, registro de marcadores en tiempo real y premios en{" "}
+          Veto de mapas directamente en la web, lanzamiento automatico de CS2 sin usar consola, registro de marcadores en tiempo real y premios en{" "}
           <span className="text-white font-semibold border-b border-[#FF5500]">
             Skins de CS2 y USDT
           </span>
@@ -303,21 +316,21 @@ export default function Home() {
           </a>
         </div>
 
-        {/* SECCIN 1: SALA INTERACTIVA DE MATCHMAKING Y VETO DE MAPAS */}
+        {/* SECCION 1: SALA INTERACTIVA DE MATCHMAKING Y VETO DE MAPAS */}
         <section id="lobby" className="mt-24 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#66c0f4] text-xs font-black uppercase tracking-widest mb-1">
-                LOBBY COMPETITIVO 5v5  PICK & BAN EN VIVO
+                LOBBY COMPETITIVO 5v5 | PICK & BAN EN VIVO
               </div>
               <h2 className="text-3xl font-black text-white">
-                SALA DE PARTIDA & SELECCIN DE MAPA
+                SALA DE PARTIDA & SELECCION DE MAPA
               </h2>
             </div>
             <div className="mt-3 md:mt-0 flex items-center gap-3">
               <span className="text-xs px-3 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-[#c7d5e0] font-bold">
                 {finalMap
-                  ? ` MAPA ELEGIDO: ${finalMap.name.toUpperCase()}`
+                  ? `MAPA ELEGIDO: ${finalMap.name.toUpperCase()}`
                   : `TURNO DE BANEO: ${currentTurn.toUpperCase()}`}
               </span>
               {bannedMaps.length > 0 && (
@@ -339,7 +352,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-white font-black text-lg">EQUIPO ALPHA</div>
-                  <div className="text-xs text-[#66c0f4] font-bold">Capit¡n: YonathanDHC  5/5 Listos</div>
+                  <div className="text-xs text-[#66c0f4] font-bold">Capitan: YonathanDHC | 5/5 Listos</div>
                 </div>
               </div>
 
@@ -350,7 +363,7 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="inline-block px-4 py-1.5 rounded-sm bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] text-xs font-black tracking-wider uppercase">
-                    Servidor Configurado  Listo para ingresar
+                    Servidor Configurado | Listo para ingresar
                   </div>
                 )}
               </div>
@@ -358,7 +371,7 @@ export default function Home() {
               <div className="flex items-center justify-between md:justify-end gap-4">
                 <div className="text-left md:text-right">
                   <div className="text-white font-black text-lg">EQUIPO OMEGA</div>
-                  <div className="text-xs text-[#FF5500] font-bold">Capit¡n: Viper_CCS  5/5 Listos</div>
+                  <div className="text-xs text-[#FF5500] font-bold">Capitan: Viper_CCS | 5/5 Listos</div>
                 </div>
                 <div className="w-12 h-12 rounded-sm bg-[#FF5500]/15 border border-[#FF5500] flex items-center justify-center font-black text-[#FF5500]">
                   TT
@@ -366,7 +379,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Cuadrcula de los 7 Mapas de CS2 */}
+            {/* Cuadricula de los 7 Mapas de CS2 */}
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
               {CS2_MAPS.map((map) => {
                 const isBanned = bannedMaps.includes(map.id);
@@ -387,8 +400,8 @@ export default function Home() {
                   >
                     <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
                       <span className="text-[#8f98a0]">{map.id}</span>
-                      {isBanned && <span className="text-red-400">VETADO </span>}
-                      {isWinner && <span className="text-[#a4d007]">ACTIVO </span>}
+                      {isBanned && <span className="text-red-400">VETADO X</span>}
+                      {isWinner && <span className="text-[#a4d007]">ACTIVO *</span>}
                     </div>
 
                     <div>
@@ -402,7 +415,7 @@ export default function Home() {
 
                     {!isBanned && !isWinner && (
                       <div className="text-[10px] font-bold text-[#FF5500] opacity-0 group-hover:opacity-100 transition">
-                        Clic para banear 
+                        Clic para banear -&gt;
                       </div>
                     )}
                   </button>
@@ -410,7 +423,6 @@ export default function Home() {
               })}
             </div>
 
-            {/* Panel de Accin cuando queda 1 solo mapa elegido */}
             {finalMap && (
               <div className="mt-8 p-5 rounded-sm bg-[#171a21] border border-[#a4d007]/60 flex flex-col md:flex-row items-center justify-between gap-4">
                 <div>
@@ -418,7 +430,7 @@ export default function Home() {
                     MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})
                   </div>
                   <p className="text-xs text-[#8f98a0] mt-1">
-                    El servidor de Miami ya carg el mapa. Ingresa con un clic sin abrir consola o registra el resultado para actualizar el ELO.
+                    El servidor de Miami ya cargo el mapa. Ingresa con un clic sin abrir consola o registra el resultado para actualizar el ELO.
                   </p>
                 </div>
 
@@ -427,7 +439,7 @@ export default function Home() {
                     href="steam://connect/mia1.aimvesports.com:27015"
                     className="w-full sm:w-auto text-center px-6 py-3 rounded-sm bg-gradient-to-r from-[#a4d007] to-[#7aa600] hover:brightness-110 text-[#171a21] font-black text-xs uppercase tracking-wider transition"
                   >
-                     ENTRAR A LA PARTIDA (ABRIR CS2)
+                    &gt; ENTRAR A LA PARTIDA (ABRIR CS2)
                   </a>
                   <button
                     onClick={handleSimulateFinish}
@@ -442,19 +454,19 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECCIN 2: RESULTADOS DE PARTIDAS EN VIVO */}
+        {/* SECCION 2: RESULTADOS DE PARTIDAS EN VIVO */}
         <section id="resultados" className="mt-24 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#a4d007] text-xs font-black uppercase tracking-widest mb-1">
-                HISTORIAL OFICIAL  BASE DE DATOS EN TIEMPO REAL
+                HISTORIAL OFICIAL | BASE DE DATOS EN TIEMPO REAL
               </div>
               <h2 className="text-3xl font-black text-white">
                 RESULTADOS DE PARTIDAS RECIENTES
               </h2>
             </div>
             <span className="text-xs text-[#8f98a0] mt-2 md:mt-0">
-              Sincronizado autom¡ticamente al finalizar cada mapa.
+              Sincronizado automaticamente al finalizar cada mapa.
             </span>
           </div>
 
@@ -495,12 +507,12 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SECCIN 3: LEADERBOARD MENSUAL EN TIEMPO REAL DESDE SUPABASE */}
+        {/* SECCION 3: LEADERBOARD MENSUAL EN TIEMPO REAL DESDE SUPABASE */}
         <section id="premios" className="mt-24 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
               <div className="text-[#FF5500] text-xs font-black uppercase tracking-widest mb-1">
-                TEMPORADA FUNDADORES  RANKING EN VIVO
+                TEMPORADA FUNDADORES | RANKING EN VIVO
               </div>
               <h2 className="text-3xl font-black text-white">
                 LEADERBOARD TOP ELO & RECOMPENSAS
@@ -515,7 +527,7 @@ export default function Home() {
             <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr className="bg-[#171a21] text-[#8f98a0] text-xs uppercase border-b border-[#2a475e]">
-                  <th className="py-3.5 px-5">Posicin</th>
+                  <th className="py-3.5 px-5">Posicion</th>
                   <th className="py-3.5 px-5">Jugador</th>
                   <th className="py-3.5 px-5">Rango ELO</th>
                   <th className="py-3.5 px-5">Partidas (W/L)</th>
@@ -527,20 +539,32 @@ export default function Home() {
                 {leaderboard.map((player, index) => {
                   const totalGames = player.wins + player.losses;
                   const winrate = totalGames > 0 ? Math.round((player.wins / totalGames) * 100) : 0;
+                  const isMe = Boolean(loggedSteamId && player.steam_id === loggedSteamId);
 
                   return (
                     <tr
                       key={player.id}
-                      className={index === 0 ? "bg-gradient-to-r from-[#FF5500]/15 to-transparent" : ""}
+                      className={
+                        isMe
+                          ? "bg-gradient-to-r from-[#a4d007]/20 via-[#1b2838] to-transparent"
+                          : index === 0
+                          ? "bg-gradient-to-r from-[#FF5500]/15 to-transparent"
+                          : ""
+                      }
                     >
                       <td className={`py-4 px-5 font-black ${index === 0 ? "text-[#FF5500]" : index === 1 ? "text-[#c7d5e0]" : "text-[#8f98a0]"}`}>
-                        #{index + 1} {index === 0 ? "" : index === 1 ? "" : index === 2 ? "" : ""}
+                        #{index + 1}
                       </td>
                       <td className="py-4 px-5 font-bold text-white">
                         {player.nickname}{" "}
                         <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-[#171a21] border border-[#2a475e] text-[#66c0f4]">
                           {player.country}
                         </span>
+                        {isMe && (
+                          <span className="ml-2 text-[10px] px-2 py-0.5 rounded-sm bg-[#a4d007] text-[#171a21] font-black uppercase">
+                            TU PERFIL
+                          </span>
+                        )}
                       </td>
                       <td className="py-4 px-5 text-[#66c0f4] font-mono font-bold">
                         {player.elo.toLocaleString()} ELO
@@ -564,10 +588,10 @@ export default function Home() {
         </section>
       </main>
 
-      {/* Pie de P¡gina Corporativo */}
+      {/* Pie de Pagina Corporativo */}
       <footer className="border-t border-[#2a475e]/60 bg-[#111318] py-8 text-center text-xs text-[#8f98a0]">
         <p className="font-semibold text-[#c7d5e0]">
-           2026 AimVe Sports. Operado por SHOPYSOF., C.A. Todos los derechos reservados.
+          2026 AimVe Sports. Operado por SHOPYSOF., C.A. Todos los derechos reservados.
         </p>
         <p className="mt-1">Soporte y alianzas comerciales: contacto@aimvesports.com</p>
       </footer>
@@ -580,19 +604,19 @@ export default function Home() {
               onClick={() => setModalOpen(false)}
               className="absolute top-4 right-4 text-[#8f98a0] hover:text-white text-lg font-bold cursor-pointer"
             >
-              
+              X
             </button>
 
             {!registered ? (
               <form onSubmit={handleRegister}>
                 <div className="text-xs font-black text-[#FF5500] uppercase tracking-widest mb-1">
-                  LISTA DE FUNDADORES  CS2 LATAM
+                  LISTA DE FUNDADORES | CS2 LATAM
                 </div>
                 <h3 className="text-2xl font-black text-white mb-2">
                   Reserva tu Slot en AimVe
                 </h3>
                 <p className="text-xs text-[#8f98a0] mb-5">
-                  Regstrate para recibir tu invitacin a la Beta Cerrada, insignia de Fundador y acceso a los sorteos de Skins de lanzamiento.
+                  Registrate para recibir tu invitacion a la Beta Cerrada, insignia de Fundador y acceso a los sorteos de Skins de lanzamiento.
                 </p>
 
                 {errorMsg && (
@@ -617,7 +641,7 @@ export default function Home() {
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase text-[#c7d5e0] mb-1">
-                      Correo Electrnico
+                      Correo Electronico
                     </label>
                     <input
                       type="email"
@@ -630,7 +654,7 @@ export default function Home() {
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase text-[#c7d5e0] mb-1">
-                      Pas de Conexin
+                      Pais de Conexion
                     </label>
                     <select
                       value={country}
@@ -639,9 +663,9 @@ export default function Home() {
                     >
                       <option value="Venezuela (Fibra / Low-Ping)">Venezuela (Fibra / Low-Ping)</option>
                       <option value="Colombia">Colombia</option>
-                      <option value="Panam¡ / Caribe">Panam¡ / Caribe</option>
-                      <option value="Ecuador / Per">Ecuador / Per</option>
-                      <option value="Otro pas LATAM">Otro pas LATAM</option>
+                      <option value="Panama / Caribe">Panama / Caribe</option>
+                      <option value="Ecuador / Peru">Ecuador / Peru</option>
+                      <option value="Otro pais LATAM">Otro pais LATAM</option>
                     </select>
                   </div>
                 </div>
@@ -656,11 +680,11 @@ export default function Home() {
               </form>
             ) : (
               <div className="text-center py-6">
-                <div className="w-12 h-12 rounded-full bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] flex items-center justify-center mx-auto mb-4 text-xl font-black">
-                  
+                <div className="w-12 h-12 rounded-full bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] flex items-center justify-center mx-auto mb-4 text-base font-black">
+                  OK
                 </div>
                 <h4 className="text-xl font-black text-white mb-2">
-                  ¡Solicitud Registrada!
+                  Solicitud Registrada!
                 </h4>
                 <p className="text-xs text-[#8f98a0] mb-6">
                   Has quedado anotado en la lista prioritaria de AimVe Sports. Te notificaremos apenas abramos los servidores de prueba.
