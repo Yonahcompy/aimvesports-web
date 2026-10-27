@@ -668,11 +668,12 @@ export default function Home() {
 
   const handleBanMap = (mapId: string) => {
     if (finalMap || bannedMaps.includes(mapId) || !activeMatch) return;
-    const amICaptainAlpha = loggedSteamId === activeMatch.captain_alpha_steam_id;
-    const amICaptainOmega = loggedSteamId === activeMatch.captain_omega_steam_id;
+    const amICaptainAlpha = String(loggedSteamId) === String(activeMatch.captain_alpha_steam_id);
+    const amICaptainOmega = String(loggedSteamId) === String(activeMatch.captain_omega_steam_id);
     const isMyTurn = (isAlphaTurn && amICaptainAlpha) || (!isAlphaTurn && amICaptainOmega);
     if (!isMyTurn) {
-      alert("Acceso denegado: Solo el Capitán del equipo en turno puede vetar mapas.");
+      const turnoActual = isAlphaTurn ? "ALPHA" : "OMEGA";
+      alert("Acceso denegado: Es el turno del EQUIPO " + turnoActual + ".");
       return;
     }
     const mapObj = CS2_MAPS.find((m) => m.id === mapId);
