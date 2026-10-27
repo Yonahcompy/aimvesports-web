@@ -305,9 +305,10 @@ export default function Home() {
       .channel('realtime_matches')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'active_matches' },
+        { event: '*', schema: 'public', table: 'active_matches' },
         (payload) => {
           setActiveMatch(payload.new);
+          if ((payload.new as any)?.banned_maps) setBannedMaps((payload.new as any).banned_maps);
           setQueueSearching(false);
           setChatMessages((prev) => [
             ...prev,
@@ -670,7 +671,35 @@ export default function Home() {
     if (finalMap || bannedMaps.includes(mapId) || !activeMatch) return;
     const amICaptainAlpha = String(loggedSteamId) === String(activeMatch.captain_alpha_steam_id);
     const amICaptainOmega = String(loggedSteamId) === String(activeMatch.captain_omega_steam_id);
-    const isMyTurn = (isAlphaTurn && amICaptainAlpha) || (!isAlphaTurn && amICaptainOmega);
+      useEffect(() => {
+    const restoreState = async () => {
+      if (!loggedSteamId) return;
+      
+      // A) Revisar si estas en una partida de Veto activa
+      const { data: matches } = await supabase.from('active_matches').select('*').eq('status', 'veto');
+      if (matches) {
+        const myMatch = matches.find((m: any) => 
+          m.team_alpha?.some((p: any) => String(p.steam_id) === String(loggedSteamId)) || 
+          m.team_omega?.some((p: any) => String(p.steam_id) === String(loggedSteamId))
+        );
+        if (myMatch) {
+          setActiveMatch(myMatch);
+          if (myMatch.banned_maps) setBannedMaps(myMatch.banned_maps);
+          setQueueSearching(false);
+          return; // Si estas en partida, no revisar la cola
+        }
+      }
+      
+      // B) Revisar si estabas buscando partida en la cola
+      const { data: qData } = await supabase.from('matchmaking_queue').select('*');
+      if (qData && qData.some((p: any) => String(p.steam_id) === String(loggedSteamId))) {
+        setQueueSearching(true);
+      }
+    };
+    restoreState();
+  }, [loggedSteamId]);
+
+  const isMyTurn = (isAlphaTurn && amICaptainAlpha) || (!isAlphaTurn && amICaptainOmega);
     if (!isMyTurn) {
       const turnoActual = isAlphaTurn ? "ALPHA" : "OMEGA";
       alert("Acceso denegado: Es el turno del EQUIPO " + turnoActual + ".");
