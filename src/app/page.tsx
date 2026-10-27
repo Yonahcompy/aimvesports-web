@@ -253,8 +253,9 @@ export default function Home() {
     ? leaderboard.find((p) => p.steam_id && p.steam_id === loggedSteamId) || loggedPlayer
     : null;
 
-  const captainAlphaName = currentPlayerProfile?.nickname || "YonathanDHC";
+  
   // Estados del Chat de Equipo durante el Veto
+  const captainAlphaName = activeMatch?.team_alpha?.[0]?.nickname || "Capitán Alpha";
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -607,7 +608,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           steam_id: loggedSteamId || "jugador_local",
-          nickname: currentPlayerProfile ? currentPlayerProfile.nickname : captainAlphaName,
+          nickname: currentPlayerProfile ? currentPlayerProfile.nickname : "Jugador_Random",
           elo: currentPlayerProfile ? currentPlayerProfile.elo : 0,
           country: currentPlayerProfile ? currentPlayerProfile.country : "VE",
         }),
@@ -621,7 +622,7 @@ export default function Home() {
   };
 
     const isAlphaTurn = bannedMaps.length % 2 === 0;
-  const currentTurn = isAlphaTurn ? `EQUIPO ${typeof captainAlphaName !== "undefined" ? captainAlphaName : "ALPHA"}` : "EQUIPO VIPER_CCS";
+  const currentTurn = isAlphaTurn ? "EQUIPO ALPHA" : "EQUIPO OMEGA";
   const finalMap = bannedMaps.length >= 6 ? CS2_MAPS.find((m: any) => !bannedMaps.includes(m.id)) : null;
   // Reloj de 15 segundos por turno con Auto-Veto
   useEffect(() => {
@@ -655,7 +656,7 @@ export default function Home() {
         ...prev,
         {
           id: Date.now(),
-          sender: isAlphaTurn ? `${captainAlphaName} (Capitan)` : "Viper_CCS (Capitan)",
+          sender: isAlphaTurn ? "Capitán Alpha" : "Capitán Omega",
           text: `Veto confirmado: descartado ${mapObj.name}.`,
           time: "Ahora",
           isSystem: true,
@@ -1171,7 +1172,7 @@ export default function Home() {
                     </span>
                     <div>
                       <div className="text-white font-black text-base leading-none">
-                        EQUIPO {captainAlphaName.toUpperCase()}
+                        EQUIPO ALPHA
                       </div>
                       <span className="text-[10px] text-[#66c0f4] font-bold">
                         5 Jugadores Individuales | Solo Queue
@@ -1307,7 +1308,7 @@ export default function Home() {
                   <div className="flex items-center gap-2.5 ml-auto text-right">
                     <div>
                       <div className="text-white font-black text-base leading-none">
-                        EQUIPO VIPER_CCS
+                        EQUIPO OMEGA
                       </div>
                       <span className="text-[10px] text-[#FF5500] font-bold">
                         5 Jugadores Individuales | Solo Queue
