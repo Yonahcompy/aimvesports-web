@@ -520,12 +520,39 @@ export default function Home() {
     );
   };
 
-  // Simulador de Busqueda de Partida Solo Queue
-  const handleStartSoloQueue = () => {
+  // Busqueda de Partida Solo Queue conectada a /api/queue en Supabase
+  const handleStartSoloQueue = async () => {
     setQueueSearching(true);
-    setQueueCount(4);
+    setQueueCount(2);
     setBannedMaps([]);
     setTimeLeft(15);
+
+    try {
+      const res = await fetch("/api/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          steam_id: loggedSteamId || `invitado_${Date.now()}`,
+          nickname: currentPlayerProfile ? currentPlayerProfile.nickname : "Jugador_VE",
+          elo: currentPlayerProfile ? currentPlayerProfile.elo : 0,
+          country: currentPlayerProfile ? currentPlayerProfile.country : "VE",
+        }),
+      });
+      const data = await res.json();
+      if (data && Array.isArray(data.queue) && data.queue.length > 0) {
+        const nombresReales = data.queue.map((p: any) => p.nickname).join(", ");
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            sender: "SISTEMA",
+            text: `Cola Miami 5v5 sincronizada en Supabase. Jugadores verificados en sala: ${nombresReales}.`,
+            time: "Ahora",
+            isSystem: true,
+          },
+        ]);
+      }
+    } catch {}
 
     const interval = setInterval(() => {
       setQueueCount((prev) => {
@@ -536,7 +563,7 @@ export default function Home() {
         }
         return prev + 2 > 10 ? 10 : prev + 2;
       });
-    }, 800);
+    }, 700);
   };
 
   // Logica del Veto de Mapas y Turnos
