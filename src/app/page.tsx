@@ -1200,9 +1200,7 @@ export default function Home() {
                       CT
                     </span>
                     <div>
-                      <div className="text-white font-black text-base leading-none">
-                        EQUIPO ALPHA
-                      </div>
+                      <div className="text-white font-black text-base leading-none">{activeMatch ? "EQUIPO ALPHA" : "EN COLA (1-5)"}</div>
                       <span className="text-[10px] text-[#66c0f4] font-bold">
                         5 Jugadores Individuales | Solo Queue
                       </span>
@@ -1336,9 +1334,7 @@ export default function Home() {
                   )}
                   <div className="flex items-center gap-2.5 ml-auto text-right">
                     <div>
-                      <div className="text-white font-black text-base leading-none">
-                        EQUIPO OMEGA
-                      </div>
+                      <div className="text-white font-black text-base leading-none">{activeMatch ? "EQUIPO OMEGA" : "EN COLA (6-10)"}</div>
                       <span className="text-[10px] text-[#FF5500] font-bold">
                         5 Jugadores Individuales | Solo Queue
                       </span>
