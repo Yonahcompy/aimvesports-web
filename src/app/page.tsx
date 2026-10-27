@@ -241,6 +241,23 @@ export default function Home() {
 
   const [queueSearching, setQueueSearching] = useState(false);
   const [activeMatch, setActiveMatch] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchCola = async () => {
+      const { data } = await supabase.from('matchmaking_queue').select('*').order('joined_at', { ascending: true });
+      if (data) {
+        setQueuedPlayers(data);
+        setQueueCount(data.length);
+      }
+    };
+    fetchCola();
+    
+    const subCola = supabase.channel('cola_publica')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matchmaking_queue' }, () => { fetchCola(); })
+      .subscribe();
+      
+    return () => { supabase.removeChannel(subCola); };
+  }, []);
   const [queuedPlayers, setQueuedPlayers] = useState<any[]>([]);
   const [queueCount, setQueueCount] = useState(0);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
