@@ -264,6 +264,7 @@ export default function Home() {
     ? leaderboard.find((p) => p.steam_id && p.steam_id === loggedSteamId) || loggedPlayer
     : null;
 
+  const captainAlphaName = currentPlayerProfile?.nickname || "YonathanDHC";
   // Estados del Chat de Equipo durante el Veto
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -592,7 +593,6 @@ export default function Home() {
   // Busqueda de Partida Solo Queue conectada a /api/queue en Supabase
   const handleStartSoloQueue = async () => {
     setQueueSearching(true);
-    setQueueCount(2);
     setBannedMaps([]);
     setTimeLeft(15);
 
@@ -601,41 +601,26 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          steam_id: loggedSteamId || `invitado_${Date.now()}`,
-          nickname: currentPlayerProfile ? currentPlayerProfile.nickname : "Jugador_VE",
+          steam_id: loggedSteamId || "jugador_local",
+          nickname: currentPlayerProfile ? currentPlayerProfile.nickname : captainAlphaName,
           elo: currentPlayerProfile ? currentPlayerProfile.elo : 0,
           country: currentPlayerProfile ? currentPlayerProfile.country : "VE",
         }),
       });
       const data = await res.json();
-      if (data && Array.isArray(data.queue) && data.queue.length > 0) {
-        const nombresReales = data.queue.map((p: any) => p.nickname).join(", ");
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now(),
-            sender: "SISTEMA",
-            text: `Cola Miami 5v5 sincronizada en Supabase. Jugadores verificados en sala: ${nombresReales}.`,
-            time: "Ahora",
-            isSystem: true,
-          },
-        ]);
+      if (data && typeof data.count === "number") {
+        setQueuedPlayers(data.queue || []);
+        setQueueCount(data.count);
       }
     } catch {}
-
-    
   };
 
-  // Logica del Veto de Mapas y Turnos
-  const remainingMaps = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
-  const finalMap = remainingMaps.length === 1 ? remainingMaps[0] : null;
-  const isAlphaTurn = bannedMaps.length % 2 === 0;
-  const captainAlphaName = currentPlayerProfile ? currentPlayerProfile.nickname : "YonathanDHC";
-  const currentTurn = isAlphaTurn ? `Equipo ${captainAlphaName}` : "Equipo Viper_CCS";
-
+    const isAlphaTurn = bannedMaps.length % 2 === 0;
+  const currentTurn = isAlphaTurn ? `EQUIPO ${typeof captainAlphaName !== "undefined" ? captainAlphaName : "ALPHA"}` : "EQUIPO VIPER_CCS";
+  const finalMap = bannedMaps.length >= 6 ? CS2_MAPS.find((m: any) => !bannedMaps.includes(m.id)) : null;
   // Reloj de 15 segundos por turno con Auto-Veto
   useEffect(() => {
-    if (finalMap || queueSearching) return;
+    if (finalMap || queueSearching || queueCount < 10) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -652,10 +637,10 @@ export default function Home() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [bannedMaps, finalMap, queueSearching]);
+  }, [bannedMaps, finalMap, queueSearching, queueCount]);
 
   const handleBanMap = (mapId: string) => {
-    if (finalMap || bannedMaps.includes(mapId) || queueSearching) return;
+    if (finalMap || bannedMaps.includes(mapId) || queueSearching || queueCount < 10) return;
     const mapObj = CS2_MAPS.find((m) => m.id === mapId);
     setBannedMaps([...bannedMaps, mapId]);
     setTimeLeft(15);
@@ -1233,10 +1218,10 @@ export default function Home() {
 
               {/* RELOJ CENTRAL DE VETO PREMIER */}
               <div className="text-center flex flex-col items-center justify-center my-auto">
-                {queueSearching ? (
+                {(queueSearching || queueCount < 10) ? (
                   <div className="w-full max-w-xs bg-[#171a21] border border-[#a4d007] rounded-sm p-5">
                     <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider animate-pulse mb-2">
-                      BUSCANDO JUGADORES EN COLA...
+                      {queueSearching ? 'BUSCANDO JUGADORES EN COLA...' : 'SALA EN ESPERA DE JUGADORES'}
                     </div>
                     <div className="text-3xl font-black text-white font-mono">
                       {queueCount} / 10
@@ -1370,7 +1355,7 @@ export default function Home() {
                       <button
                         key={map.id}
                         onClick={() => handleBanMap(map.id)}
-                        disabled={isBanned || Boolean(finalMap) || queueSearching}
+                        disabled={isBanned || Boolean(finalMap) || queueSearching || queueCount < 10}
                         className={`p-4 rounded-sm border text-left transition flex flex-col justify-between h-32 relative overflow-hidden ${
                           isBanned
                             ? "bg-[#111318]/90 border-red-900/50 opacity-45 cursor-not-allowed"
