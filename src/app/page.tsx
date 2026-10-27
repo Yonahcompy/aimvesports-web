@@ -665,7 +665,7 @@ export default function Home() {
   // Busqueda de Partida Solo Queue conectada a /api/queue en Supabase
   const handleStartSoloQueue = async () => {
     if (!loggedSteamId) {
-      alert("Debes iniciar sesión con Steam para buscar partida.");
+      console.warn("Clic denegado silenciosamente: No es tu turno.");
       return;
     }
     setQueueSearching(true);
@@ -723,7 +723,7 @@ export default function Home() {
   const isMyTurn = (isAlphaTurn && amICaptainAlpha) || (!isAlphaTurn && amICaptainOmega);
     if (!isMyTurn) {
       const turnoActual = isAlphaTurn ? "ALPHA" : "OMEGA";
-      alert("Acceso denegado: Es el turno del EQUIPO " + turnoActual + ".");
+      console.warn("Clic denegado silenciosamente: No es tu turno.");
       return;
     }
     const mapObj = CS2_MAPS.find((m) => m.id === mapId);
