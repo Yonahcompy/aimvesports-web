@@ -252,6 +252,7 @@ export default function Home() {
   const [weekSecondsLeft, setWeekSecondsLeft] = useState<number>(6 * 86400 + 14 * 3600 + 42 * 60);
 
   const [queueSearching, setQueueSearching] = useState(false);
+  const [activeMatch, setActiveMatch] = useState<any>(null);
   const [queuedPlayers, setQueuedPlayers] = useState<any[]>([]);
   const [queueCount, setQueueCount] = useState(0);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
@@ -294,6 +295,22 @@ export default function Home() {
 
   // Suscripcion en Tiempo Real a la Cola 5v5
   useEffect(() => {
+        const channelMatches = supabase
+      .channel('realtime_matches')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'active_matches' },
+        (payload) => {
+          setActiveMatch(payload.new);
+          setQueueSearching(false);
+          setChatMessages((prev) => [
+            ...prev,
+            { id: Date.now(), sender: "SISTEMA", text: "¡10/10 Jugadores Confirmados! Partida armada por ELO. Iniciando Veto...", time: "Ahora", isSystem: true }
+          ]);
+        }
+      )
+      .subscribe();
+
     const channel = supabase
       .channel('realtime_queue')
       .on(
@@ -1186,9 +1203,9 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-1.5">
-                  {TEAM_ALPHA_ROSTER.map((p, idx) => {
-                    const displayNick = idx === 0 ? captainAlphaName : p.nick;
-                    const displayElo = idx === 0 && currentPlayerProfile ? currentPlayerProfile.elo : p.elo;
+                  {(activeMatch?.team_alpha?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || TEAM_ALPHA_ROSTER).map((p: any, idx: number) => {
+                    const displayNick = p.nick;
+                    const displayElo = p.elo;
                     const style = getEloTierStyle(displayElo, p.matches);
                     return (
                       <div
@@ -1314,7 +1331,7 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-1.5">
-                  {TEAM_OMEGA_ROSTER.map((p, idx) => {
+                  {(activeMatch?.team_omega?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || TEAM_OMEGA_ROSTER).map((p: any, idx: number) => {
                     const style = getEloTierStyle(p.elo, p.matches);
                     return (
                       <div
