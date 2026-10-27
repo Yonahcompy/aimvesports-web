@@ -252,6 +252,7 @@ export default function Home() {
   const [weekSecondsLeft, setWeekSecondsLeft] = useState<number>(6 * 86400 + 14 * 3600 + 42 * 60);
 
   const [queueSearching, setQueueSearching] = useState(false);
+  const [queuedPlayers, setQueuedPlayers] = useState<any[]>([]);
   const [queueCount, setQueueCount] = useState(10);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState<number>(15);
@@ -289,6 +290,51 @@ export default function Home() {
 
   const [weekExpiresAt, setWeekExpiresAt] = useState<number>(0);
   const [missionsHydrated, setMissionsHydrated] = useState(false);
+
+  // Suscripcion en Tiempo Real a la Cola 5v5
+  useEffect(() => {
+    const channel = supabase
+      .channel('realtime_queue')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'matchmaking_queue' },
+        async () => {
+          try {
+            const res = await fetch('/api/queue');
+            const data = await res.json();
+            if (data && typeof data.count === 'number') {
+              setQueuedPlayers(data.queue || []);
+              setQueueCount(Math.max(1, data.count));
+            }
+          } catch (err) {}
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Transicion automatica al Veto cuando llegamos a 10 reales
+  useEffect(() => {
+    if (queueSearching && queueCount >= 10) {
+      const t = setTimeout(() => {
+        setQueueSearching(false);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            sender: "SISTEMA",
+            text: "¡10/10 Jugadores Confirmados! Iniciando Veto de Mapas...",
+            time: "Ahora",
+            isSystem: true,
+          },
+        ]);
+      }, 1000);
+      return () => clearTimeout(t);
+    }
+  }, [queueCount, queueSearching]);
 
   // Cargar progreso guardado (de Supabase o localStorage) al detectar cuenta o abrir la web
   useEffect(() => {
