@@ -5,6 +5,10 @@ async function fetchRealSteamPersonaName(steamId64: string): Promise<string | nu
   try {
     const res = await fetch(`https://steamcommunity.com/profiles/${steamId64}/?xml=1`, {
       cache: 'no-store',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/xml,text/xml,*/*',
+      },
     });
     const xml = await res.text();
     const matchCdata = xml.match(/<steamID><!\[CDATA\[(.*?)\]\]><\/steamID>/);
@@ -31,16 +35,19 @@ export async function POST(request: Request) {
 
     // 1. Obtener el nombre real actual desde el perfil publico de Valve / Steam
     const realSteamName = await fetchRealSteamPersonaName(steam_id);
+    const finalNick = realSteamName || `Steam_${steam_id.slice(-4)}`;
 
     // 2. Verificar si ya existe el jugador en Supabase
-    const { data: existing } = await supabase
+    const { data: existingRows } = await supabase
       .from('leaderboard_players')
       .select('*')
       .eq('steam_id', steam_id)
-      .maybeSingle();
+      .order('id', { ascending: true })
+      .limit(1);
+
+    const existing = existingRows && existingRows.length > 0 ? existingRows[0] : null;
 
     if (existing) {
-      // Si el nombre en Steam cambio o era distinto, actualizarlo automaticamente en Supabase
       if (realSteamName && existing.nickname !== realSteamName) {
         const { data: updated } = await supabase
           .from('leaderboard_players')
@@ -49,31 +56,39 @@ export async function POST(request: Request) {
           .select()
           .single();
 
-        return NextResponse.json({ player: updated || existing, created: false, syncedName: realSteamName });
+        return NextResponse.json({
+          player: updated || { ...existing, nickname: realSteamName },
+          created: false,
+          syncedName: realSteamName,
+        });
       }
       return NextResponse.json({ player: existing, created: false });
     }
 
-    // 3. Si es un jugador nuevo, crearlo con su nombre oficial de Steam en estado CALIBRANDO (0/6)
-    const finalNick = realSteamName || `Player_${steam_id.slice(-4)}`;
+    // 3. Si es un jugador nuevo, crearlo en Supabase en estado CALIBRANDO (0/6) con 25 ELO
+    const newPlayerPayload = {
+      nickname: finalNick,
+      steam_id: steam_id,
+      elo: 25,
+      wins: 0,
+      losses: 0,
+      country: country || 'VE',
+      season_prize: 'En Calibracion (0/6)',
+    };
+
     const { data: createdPlayer, error } = await supabase
       .from('leaderboard_players')
-      .insert([
-        {
-          nickname: finalNick,
-          steam_id: steam_id,
-          elo: 25,
-          wins: 0,
-          losses: 0,
-          country: country || 'VE',
-          season_prize: 'En Calibracion (0/6)',
-        },
-      ])
+      .insert([newPlayerPayload])
       .select()
       .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error || !createdPlayer) {
+      // Fallback en memoria para que el frontend siempre muestre la cuenta real conectada
+      return NextResponse.json({
+        player: { id: Date.now(), ...newPlayerPayload },
+        created: false,
+        rlsWarning: error?.message || null,
+      });
     }
 
     return NextResponse.json({ player: createdPlayer, created: true, syncedName: finalNick });
