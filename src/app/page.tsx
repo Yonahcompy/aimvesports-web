@@ -228,7 +228,6 @@ export default function Home() {
   const [registered, setRegistered] = useState(false);
   const [loggedSteamId, setLoggedSteamId] = useState<string | null>(null);
   const [loggedPlayer, setLoggedPlayer] = useState<LeaderboardPlayer | null>(null);
-  const [loggedPlayer, setLoggedPlayer] = useState<LeaderboardPlayer | null>(null);
 
   const [steamId, setSteamId] = useState("");
   const [email, setEmail] = useState("");
@@ -389,6 +388,13 @@ export default function Home() {
     if (missionId === "m_retakes") setEloShieldActive(true);
 
     if (currentPlayerProfile) {
+      const totalPlayed = currentPlayerProfile.wins + currentPlayerProfile.losses;
+      if (totalPlayed < 6) {
+        setMissionBanner(
+          `Mision completada (${targetMission.title}): Bono especial activado. Para sumar +${targetMission.eloReward} ELO directos debes completar primero tus 6 partidas de calibracion (${totalPlayed}/6).`
+        );
+        return;
+      }
       const updatedElo = currentPlayerProfile.elo + targetMission.eloReward;
       await supabase
         .from("leaderboard_players")
@@ -427,12 +433,15 @@ export default function Home() {
     );
 
     if (currentPlayerProfile) {
-      const nextElo = Math.max(25, currentPlayerProfile.elo - totalPenalty);
-      await supabase
-        .from("leaderboard_players")
-        .update({ elo: nextElo })
-        .eq("id", currentPlayerProfile.id);
-      await fetchLeaderboard();
+      const totalPlayed = currentPlayerProfile.wins + currentPlayerProfile.losses;
+      if (totalPlayed >= 6) {
+        const nextElo = Math.max(25, currentPlayerProfile.elo - totalPenalty);
+        await supabase
+          .from("leaderboard_players")
+          .update({ elo: nextElo })
+          .eq("id", currentPlayerProfile.id);
+        await fetchLeaderboard();
+      }
     }
 
     setMissionBanner(
@@ -744,7 +753,7 @@ export default function Home() {
         </h1>
 
         <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
-          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), cumple tus <span className="text-[#a4d007] font-semibold">Misiones Semanales en el Mapa de Practica</span> (7 dias de plazo o <span className="text-red-400 font-bold">-5 ELO</span> por mision incompleta) y brilla hasta <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
+          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), cumple tus <span className="text-[#a4d007] font-semibold">Misiones Semanales en el Mapa de Practica</span> (7 dias de plazo o <span className="text-red-400 font-bold">-13 ELO</span> por mision incompleta) y brilla hasta <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -776,7 +785,7 @@ export default function Home() {
                   MAPA DE PRACTICA & MISIONES SEMANALES
                 </h2>
                 <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-                  Entrena punteria mientras se llena el Lobby 5v5. Tienes <span className="text-white font-bold">7 dias</span> para completar las misiones semanales: ganarás ELO directo y escudos, pero cada mision no completada al cierre de la semana descuenta <span className="text-red-400 font-bold">-5 ELO</span>.
+                  Entrena punteria mientras se llena el Lobby 5v5. Tienes <span className="text-white font-bold">7 dias</span> para completar las misiones semanales: ganarás ELO directo y escudos, pero cada mision no completada al cierre de la semana descuenta <span className="text-red-400 font-bold">-13 ELO</span>.
                 </p>
               </div>
 
