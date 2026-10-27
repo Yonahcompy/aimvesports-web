@@ -56,11 +56,11 @@ const INITIAL_MISSIONS: WeeklyMission[] = [
     id: "m_aimbotz",
     modeId: "aim_botz",
     title: "Calentamiento de Acero (Aim Botz :27016)",
-    targetText: "Elimina 250 Bots con Headshot en el servidor de practica",
-    current: 175,
-    goal: 250,
+    targetText: "Elimina 100 Bots con Headshot en el servidor de practica",
+    current: 60,
+    goal: 100,
     eloReward: 10,
-    eloPenalty: 5,
+    eloPenalty: 13,
     bonusLabel: "+10 ELO & Bono Mano Caliente (+10 ELO en tu prox. victoria 5v5)",
     claimed: false,
     penalized: false,
@@ -69,11 +69,11 @@ const INITIAL_MISSIONS: WeeklyMission[] = [
     id: "m_dmffa",
     modeId: "dm_ffa",
     title: "Dominio de Duelos (Deathmatch FFA :27017)",
-    targetText: "Consigue 100 bajas con AK-47, M4 o Deagle en FFA",
-    current: 100,
-    goal: 100,
+    targetText: "Consigue 40 bajas con AK-47, M4 o Deagle en FFA",
+    current: 40,
+    goal: 40,
     eloReward: 15,
-    eloPenalty: 5,
+    eloPenalty: 13,
     bonusLabel: "+15 ELO Directos + 150 Pts Sorteo Mensual Skins",
     claimed: false,
     penalized: false,
@@ -82,11 +82,11 @@ const INITIAL_MISSIONS: WeeklyMission[] = [
     id: "m_retakes",
     modeId: "retakes",
     title: "Especialista en Defuse (Retakes 5v5 :27018)",
-    targetText: "Gana 20 rondas de Retake plantando o desactivando C4",
-    current: 12,
-    goal: 20,
+    targetText: "Gana 10 rondas de Retake plantando o desactivando C4",
+    current: 6,
+    goal: 10,
     eloReward: 5,
-    eloPenalty: 5,
+    eloPenalty: 13,
     bonusLabel: "+5 ELO & 1 Escudo Protector (0 ELO perdido en tu prox. derrota)",
     claimed: false,
     penalized: false,
@@ -227,6 +227,8 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [loggedSteamId, setLoggedSteamId] = useState<string | null>(null);
+  const [loggedPlayer, setLoggedPlayer] = useState<LeaderboardPlayer | null>(null);
+  const [loggedPlayer, setLoggedPlayer] = useState<LeaderboardPlayer | null>(null);
 
   const [steamId, setSteamId] = useState("");
   const [email, setEmail] = useState("");
@@ -256,7 +258,7 @@ export default function Home() {
     {
       id: 1,
       sender: "SISTEMA",
-      text: "Emparejamiento Premier completado (10/10). Recuerda completar tus misiones semanales en los mapas de practica en 7 dias para ganar bonos y evitar -5 ELO.",
+      text: "Emparejamiento Premier completado (10/10). Recuerda completar tus misiones semanales en los mapas de practica en 7 dias para ganar bonos y evitar -13 ELO (mitad de una victoria).",
       time: "Ahora",
       isSystem: true,
     },
@@ -318,10 +320,15 @@ export default function Home() {
       .from("leaderboard_players")
       .select("*")
       .order("elo", { ascending: false })
-      .limit(10);
+      .limit(50);
 
     if (data) {
       setLeaderboard(data);
+      const savedSteam = typeof window !== "undefined" ? localStorage.getItem("aimve_steam_id") : null;
+      if (savedSteam) {
+        const found = data.find((p: LeaderboardPlayer) => p.steam_id === savedSteam);
+        if (found) setLoggedPlayer(found);
+      }
     }
   };
 
@@ -346,7 +353,14 @@ export default function Home() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ steam_id: activeSteam }),
-        }).then(() => fetchLeaderboard());
+        })
+          .then((res) => res.json())
+          .then((resData) => {
+            if (resData && resData.player) {
+              setLoggedPlayer(resData.player);
+            }
+            fetchLeaderboard();
+          });
       }
     }
   }, []);
@@ -354,12 +368,13 @@ export default function Home() {
   const handleLogoutSteam = () => {
     localStorage.removeItem("aimve_steam_id");
     setLoggedSteamId(null);
+    setLoggedPlayer(null);
     setSteamId("");
   };
 
-  const currentPlayerProfile = leaderboard.find(
-    (p) => p.steam_id && p.steam_id === loggedSteamId
-  ) || leaderboard[0];
+  const currentPlayerProfile = loggedSteamId
+    ? leaderboard.find((p) => p.steam_id && p.steam_id === loggedSteamId) || loggedPlayer
+    : null;
 
   // Reclamar recompensa de Mision Semanal completada (+ELO real en Supabase + Escudo / Bono)
   const handleClaimMission = async (missionId: string) => {
@@ -406,7 +421,7 @@ export default function Home() {
       return;
     }
 
-    const totalPenalty = incomplete.length * 5;
+    const totalPenalty = incomplete.reduce((acc, m) => acc + m.eloPenalty, 0);
     setMissions((prev) =>
       prev.map((m) => (m.current < m.goal ? { ...m, penalized: true } : m))
     );
@@ -421,7 +436,7 @@ export default function Home() {
     }
 
     setMissionBanner(
-      `Plazo de 7 dias vencido: Se descontaron -${totalPenalty} ELO (-5 ELO por cada una de las ${incomplete.length} misiones de practica sin completar).`
+      `Plazo de 7 dias vencido: Se descontaron -${totalPenalty} ELO (-13 ELO, mitad de una victoria, por cada una de las ${incomplete.length} misiones sin completar).`
     );
   };
 
