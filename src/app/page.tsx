@@ -176,21 +176,9 @@ function getEloTierStyle(elo: number, totalMatches: number) {
   };
 }
 
-const TEAM_ALPHA_ROSTER = [
-  { nick: "YonathanDHC", elo: 2450, matches: 50, role: "CAPITAN", country: "VE" },
-  { nick: "MaracayAim", elo: 1280, matches: 36, role: "SOLO Q", country: "VE" },
-  { nick: "KevCS_ccs", elo: 640, matches: 18, role: "SOLO Q", country: "VE" },
-  { nick: "AndresTap", elo: 95, matches: 6, role: "SOLO Q", country: "CO" },
-  { nick: "ZuliaPeek", elo: 0, matches: 4, role: "SOLO Q", country: "VE" },
-];
+const TEAM_ALPHA_ROSTER = Array(5).fill({ nick: "ESPERANDO...", elo: 0 });
 
-const TEAM_OMEGA_ROSTER = [
-  { nick: "Viper_CCS", elo: 2310, matches: 45, role: "CAPITAN", country: "VE" },
-  { nick: "BogotaPeek", elo: 3620, matches: 62, role: "SOLO Q", country: "CO" },
-  { nick: "CatireCS", elo: 820, matches: 22, role: "SOLO Q", country: "VE" },
-  { nick: "BarquisimetoHS", elo: 210, matches: 11, role: "SOLO Q", country: "VE" },
-  { nick: "PanchoAWP", elo: 0, matches: 3, role: "SOLO Q", country: "PA" },
-];
+const TEAM_OMEGA_ROSTER = Array(5).fill({ nick: "ESPERANDO...", elo: 0 });
 
 interface MatchItem {
   id: number;
