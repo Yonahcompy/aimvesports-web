@@ -285,6 +285,19 @@ export default function Home() {
     restoreState();
   }, [loggedSteamId]);
 
+    useEffect(() => {
+    if (!activeMatch?.id) return;
+    const sub = supabase.channel('match_sync_' + activeMatch.id)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'active_matches', filter: 'id=eq.' + activeMatch.id }, (payload) => {
+        console.log("¡Sincronización recibida de la nube!", payload.new);
+        if ((payload.new as any)?.banned_maps) {
+          setBannedMaps((payload.new as any).banned_maps);
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(sub); };
+  }, [activeMatch?.id]);
+
   // Anti-Fantasmas: Avisar al backend si el jugador cierra la pestaña para sacarlo de la cola
   useEffect(() => {
     const handleUnload = () => {
