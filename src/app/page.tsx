@@ -623,16 +623,7 @@ export default function Home() {
       }
     } catch {}
 
-    const interval = setInterval(() => {
-      setQueueCount((prev) => {
-        if (prev >= 10) {
-          clearInterval(interval);
-          setQueueSearching(false);
-          return 10;
-        }
-        return prev + 2 > 10 ? 10 : prev + 2;
-      });
-    }, 700);
+    
   };
 
   // Logica del Veto de Mapas y Turnos
