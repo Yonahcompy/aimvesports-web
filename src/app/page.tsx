@@ -253,7 +253,7 @@ export default function Home() {
 
   const [queueSearching, setQueueSearching] = useState(false);
   const [queuedPlayers, setQueuedPlayers] = useState<any[]>([]);
-  const [queueCount, setQueueCount] = useState(10);
+  const [queueCount, setQueueCount] = useState(0);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState<number>(15);
   const [matches, setMatches] = useState<MatchItem[]>([]);
