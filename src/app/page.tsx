@@ -260,6 +260,41 @@ export default function Home() {
   }, []);
   const [queuedPlayers, setQueuedPlayers] = useState<any[]>([]);
   const [queueCount, setQueueCount] = useState(0);
+  // Restaurador de Memoria F5 (Zona Segura)
+  useEffect(() => {
+    const restoreState = async () => {
+      if (!loggedSteamId) return;
+      const { data: matches } = await supabase.from('active_matches').select('*').eq('status', 'veto');
+      if (matches) {
+        const myMatch = matches.find((m: any) => 
+          m.team_alpha?.some((p: any) => String(p.steam_id) === String(loggedSteamId)) || 
+          m.team_omega?.some((p: any) => String(p.steam_id) === String(loggedSteamId))
+        );
+        if (myMatch) {
+          setActiveMatch(myMatch);
+          if (myMatch.banned_maps) setBannedMaps(myMatch.banned_maps);
+          setQueueSearching(false);
+          return;
+        }
+      }
+      const { data: qData } = await supabase.from('matchmaking_queue').select('*');
+      if (qData && qData.some((p: any) => String(p.steam_id) === String(loggedSteamId))) {
+        setQueueSearching(true);
+      }
+    };
+    restoreState();
+  }, [loggedSteamId]);
+
+  // Anti-Fantasmas: Avisar al backend si el jugador cierra la pestaña para sacarlo de la cola
+  useEffect(() => {
+    const handleUnload = () => {
+      if (loggedSteamId && !activeMatch) {
+        navigator.sendBeacon('/api/queue?steam_id=' + loggedSteamId);
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, [loggedSteamId, activeMatch]);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState<number>(15);
   const [matches, setMatches] = useState<MatchItem[]>([]);
@@ -671,33 +706,6 @@ export default function Home() {
     if (finalMap || bannedMaps.includes(mapId) || !activeMatch) return;
     const amICaptainAlpha = String(loggedSteamId) === String(activeMatch.captain_alpha_steam_id);
     const amICaptainOmega = String(loggedSteamId) === String(activeMatch.captain_omega_steam_id);
-      useEffect(() => {
-    const restoreState = async () => {
-      if (!loggedSteamId) return;
-      
-      // A) Revisar si estas en una partida de Veto activa
-      const { data: matches } = await supabase.from('active_matches').select('*').eq('status', 'veto');
-      if (matches) {
-        const myMatch = matches.find((m: any) => 
-          m.team_alpha?.some((p: any) => String(p.steam_id) === String(loggedSteamId)) || 
-          m.team_omega?.some((p: any) => String(p.steam_id) === String(loggedSteamId))
-        );
-        if (myMatch) {
-          setActiveMatch(myMatch);
-          if (myMatch.banned_maps) setBannedMaps(myMatch.banned_maps);
-          setQueueSearching(false);
-          return; // Si estas en partida, no revisar la cola
-        }
-      }
-      
-      // B) Revisar si estabas buscando partida en la cola
-      const { data: qData } = await supabase.from('matchmaking_queue').select('*');
-      if (qData && qData.some((p: any) => String(p.steam_id) === String(loggedSteamId))) {
-        setQueueSearching(true);
-      }
-    };
-    restoreState();
-  }, [loggedSteamId]);
 
   const isMyTurn = (isAlphaTurn && amICaptainAlpha) || (!isAlphaTurn && amICaptainOmega);
     if (!isMyTurn) {
