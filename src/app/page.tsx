@@ -298,6 +298,26 @@ export default function Home() {
     return () => { supabase.removeChannel(sub); };
   }, [activeMatch?.id]);
 
+    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s)
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (activeMatch?.id && activeMatch?.status === 'veto') {
+      interval = setInterval(async () => {
+        const { data } = await supabase.from('active_matches').select('banned_maps').eq('id', activeMatch.id).single();
+        if (data && data.banned_maps) {
+          setBannedMaps(prev => {
+            // Solo actualizar si hay mapas nuevos en la nube para evitar parpadeos
+            if (prev.length !== data.banned_maps.length) {
+              return data.banned_maps;
+            }
+            return prev;
+          });
+        }
+      }, 1500);
+    }
+    return () => clearInterval(interval);
+  }, [activeMatch?.id, activeMatch?.status]);
+
   // Anti-Fantasmas: Avisar al backend si el jugador cierra la pestaña para sacarlo de la cola
   useEffect(() => {
     const handleUnload = () => {
