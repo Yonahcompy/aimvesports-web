@@ -68,7 +68,9 @@ export async function POST(request: Request) {
           const newLosses = team1Won ? p.losses : p.losses + 1;
           const total = newWins + newLosses;
           const nextElo =
-            total <= 6
+            total < 6
+              ? 0
+              : total === 6
               ? getCalibratedElo(newWins)
               : team1Won
               ? p.elo + 25 + stompBonus
@@ -93,7 +95,9 @@ export async function POST(request: Request) {
           const newLosses = !team1Won ? p.losses : p.losses + 1;
           const total = newWins + newLosses;
           const nextElo =
-            total <= 6
+            total < 6
+              ? 0
+              : total === 6
               ? getCalibratedElo(newWins)
               : !team1Won
               ? p.elo + 25 + stompBonus

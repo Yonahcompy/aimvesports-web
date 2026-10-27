@@ -563,7 +563,9 @@ export default function Home() {
       const warmupBonus = alphaWins && hotHandBonus ? 10 : 0;
 
       const nextElo =
-        newTotal <= 6
+        newTotal < 6
+          ? 0
+          : newTotal === 6
           ? getInitialCalibratedElo(newWins)
           : winnerRow.elo + 25 + stompBonus + warmupBonus;
 
@@ -581,7 +583,9 @@ export default function Home() {
       const isProtectedByShield = !alphaWins && eloShieldActive;
 
       const nextElo =
-        newTotal <= 6
+        newTotal < 6
+          ? 0
+          : newTotal === 6
           ? getInitialCalibratedElo(loserRow.wins)
           : isProtectedByShield
           ? loserRow.elo
@@ -686,7 +690,9 @@ export default function Home() {
                         ).badgeClass
                       }`}
                     >
-                      {currentPlayerProfile.elo} ELO
+                      {currentPlayerProfile.wins + currentPlayerProfile.losses < 6
+                        ? `CALIBRANDO (${currentPlayerProfile.wins + currentPlayerProfile.losses}/6)`
+                        : `${currentPlayerProfile.elo} ELO`}
                     </span>
                     {eloShieldActive && (
                       <span className="px-1.5 py-0.5 rounded-sm bg-[#66c0f4] text-[#171a21] text-[9px] font-black">
@@ -722,7 +728,11 @@ export default function Home() {
         <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-xs font-bold text-[#66c0f4] mb-8 shadow-inner">
           <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-pulse"></span>
           {currentPlayerProfile
-            ? `JUGADOR VERIFICADO: ${currentPlayerProfile.nickname.toUpperCase()} (${currentPlayerProfile.elo} ELO) | MISIONES SEMANALES ACTIVAS`
+            ? `JUGADOR VERIFICADO: ${currentPlayerProfile.nickname.toUpperCase()} (${
+                currentPlayerProfile.wins + currentPlayerProfile.losses < 6
+                  ? `CALIBRANDO ${currentPlayerProfile.wins + currentPlayerProfile.losses}/6`
+                  : `${currentPlayerProfile.elo} ELO`
+              }) | MISIONES SEMANALES ACTIVAS`
             : "CALIBRACION DE 6 PARTIDAS (25-100 ELO) | MISIONES DE PRACTICA CADA 7 DIAS"}
         </div>
 
@@ -1515,7 +1525,7 @@ export default function Home() {
                         <div className="flex items-center gap-2.5">
                           <span className={`font-mono text-sm font-black ${tier.textClass}`}>
                             {totalGames < 6
-                              ? `${getInitialCalibratedElo(player.wins)} ELO (Est.)`
+                              ? "SIN ELO"
                               : `${player.elo.toLocaleString()} ELO`}
                           </span>
                           <span className={`text-[10px] px-2 py-0.5 rounded-sm font-black uppercase ${tier.badgeClass}`}>

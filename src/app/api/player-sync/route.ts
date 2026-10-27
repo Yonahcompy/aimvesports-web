@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     const newPlayerPayload = {
       nickname: finalNick,
       steam_id: steam_id,
-      elo: 25,
+      elo: 0,
       wins: 0,
       losses: 0,
       country: country || 'VE',
