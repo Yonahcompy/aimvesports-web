@@ -438,6 +438,9 @@ export default function Home() {
   }, []);
 
   const handleLogoutSteam = () => {
+    if (loggedSteamId) {
+      fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
+    }
     localStorage.removeItem("aimve_steam_id");
     setLoggedSteamId(null);
     setLoggedPlayer(null);
@@ -466,11 +469,15 @@ export default function Home() {
         );
         return;
       }
-      const updatedElo = currentPlayerProfile.elo + targetMission.eloReward;
-      await supabase
-        .from("leaderboard_players")
-        .update({ elo: updatedElo })
-        .eq("id", currentPlayerProfile.id);
+      await fetch("/api/elo-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "mission_claim",
+          player_id: currentPlayerProfile.id,
+          mission_reward: targetMission.eloReward,
+        }),
+      });
       await fetchLeaderboard();
     }
 
@@ -479,13 +486,25 @@ export default function Home() {
     );
   };
 
-  // Sumar progreso de entrenamiento en una mision (para probar antes de cerrar semana)
+  // Sumar progreso de entrenamiento en una mision y sincronizar con /api/practice-webhook
   const handleAdvanceMissionProgress = (missionId: string) => {
+    const target = missions.find((m) => m.id === missionId);
     setMissions((prev) =>
       prev.map((m) =>
         m.id === missionId ? { ...m, current: m.goal, penalized: false } : m
       )
     );
+    if (loggedSteamId && target) {
+      fetch("/api/practice-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          steam_id: loggedSteamId,
+          mode_id: target.modeId,
+          amount: target.goal,
+        }),
+      }).catch(() => {});
+    }
   };
 
   // Aplicar corte de 7 dias: cada mision NO completada descuenta -5 ELO en Supabase
@@ -506,11 +525,15 @@ export default function Home() {
     if (currentPlayerProfile) {
       const totalPlayed = currentPlayerProfile.wins + currentPlayerProfile.losses;
       if (totalPlayed >= 6) {
-        const nextElo = Math.max(25, currentPlayerProfile.elo - totalPenalty);
-        await supabase
-          .from("leaderboard_players")
-          .update({ elo: nextElo })
-          .eq("id", currentPlayerProfile.id);
+        await fetch("/api/elo-update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "weekly_penalty",
+            player_id: currentPlayerProfile.id,
+            penalty_amount: totalPenalty,
+          }),
+        });
         await fetchLeaderboard();
       }
     }
@@ -709,6 +732,12 @@ export default function Home() {
         .eq("id", loserRow.id);
     }
 
+    if (loggedSteamId) {
+      await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
+    }
+    if (loggedSteamId) {
+      await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
+    }
     await fetchMatches();
     await fetchLeaderboard();
     setSavingMatch(false);
