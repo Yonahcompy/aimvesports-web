@@ -598,6 +598,10 @@ export default function Home() {
 
   // Busqueda de Partida Solo Queue conectada a /api/queue en Supabase
   const handleStartSoloQueue = async () => {
+    if (!loggedSteamId) {
+      alert("Debes iniciar sesión con Steam para buscar partida.");
+      return;
+    }
     setQueueSearching(true);
     setBannedMaps([]);
     setTimeLeft(15);
@@ -1193,7 +1197,7 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-1.5">
-                  {(activeMatch?.team_alpha?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || TEAM_ALPHA_ROSTER).map((p: any, idx: number) => {
+                  {(activeMatch?.team_alpha?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || Array.from({ length: 5 }).map((_, i) => queuedPlayers[i] ? { nick: queuedPlayers[i].nickname, elo: queuedPlayers[i].elo } : { nick: "ESPERANDO...", elo: 0 })).map((p: any, idx: number) => {
                     const displayNick = p.nick;
                     const displayElo = p.elo;
                     const style = getEloTierStyle(displayElo, p.matches);
@@ -1321,7 +1325,7 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-1.5">
-                  {(activeMatch?.team_omega?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || TEAM_OMEGA_ROSTER).map((p: any, idx: number) => {
+                  {(activeMatch?.team_omega?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || Array.from({ length: 5 }).map((_, i) => queuedPlayers[i + 5] ? { nick: queuedPlayers[i + 5].nickname, elo: queuedPlayers[i + 5].elo } : { nick: "ESPERANDO...", elo: 0 })).map((p: any, idx: number) => {
                     const style = getEloTierStyle(p.elo, p.matches);
                     return (
                       <div
