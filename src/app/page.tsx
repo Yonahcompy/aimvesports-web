@@ -57,7 +57,7 @@ const INITIAL_MISSIONS: WeeklyMission[] = [
     modeId: "aim_botz",
     title: "Calentamiento de Acero (Aim Botz :27016)",
     targetText: "Elimina 100 Bots con Headshot en el servidor de practica",
-    current: 60,
+    current: 0,
     goal: 100,
     eloReward: 10,
     eloPenalty: 13,
@@ -70,7 +70,7 @@ const INITIAL_MISSIONS: WeeklyMission[] = [
     modeId: "dm_ffa",
     title: "Dominio de Duelos (Deathmatch FFA :27017)",
     targetText: "Consigue 40 bajas con AK-47, M4 o Deagle en FFA",
-    current: 40,
+    current: 0,
     goal: 40,
     eloReward: 15,
     eloPenalty: 13,
@@ -83,7 +83,7 @@ const INITIAL_MISSIONS: WeeklyMission[] = [
     modeId: "retakes",
     title: "Especialista en Defuse (Retakes 5v5 :27018)",
     targetText: "Gana 10 rondas de Retake plantando o desactivando C4",
-    current: 6,
+    current: 0,
     goal: 10,
     eloReward: 5,
     eloPenalty: 13,
@@ -204,6 +204,13 @@ interface MatchItem {
   winner: string | null;
 }
 
+interface PersistedMissionState {
+  missions: WeeklyMission[];
+  eloShieldActive: boolean;
+  hotHandBonus: boolean;
+  weekExpiresAt: number;
+}
+
 interface LeaderboardPlayer {
   id: number;
   nickname: string;
@@ -213,6 +220,7 @@ interface LeaderboardPlayer {
   losses: number;
   country: string;
   season_prize: string;
+  mission_data?: PersistedMissionState | null;
 }
 
 interface ChatMessage {
@@ -251,6 +259,10 @@ export default function Home() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
   const [savingMatch, setSavingMatch] = useState(false);
 
+  const currentPlayerProfile = loggedSteamId
+    ? leaderboard.find((p) => p.steam_id && p.steam_id === loggedSteamId) || loggedPlayer
+    : null;
+
   // Estados del Chat de Equipo durante el Veto
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -275,13 +287,74 @@ export default function Home() {
     },
   ]);
 
-  // Reloj regresivo del ciclo semanal de 7 dias para las misiones
+  const [weekExpiresAt, setWeekExpiresAt] = useState<number>(0);
+  const [missionsHydrated, setMissionsHydrated] = useState(false);
+
+  // Cargar progreso guardado (de Supabase o localStorage) al detectar cuenta o abrir la web
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `aimve_missions_${loggedSteamId || "guest"}`;
+    const dbState = currentPlayerProfile?.mission_data;
+    const localRaw = localStorage.getItem(storageKey);
+    let localState: PersistedMissionState | null = null;
+
+    if (localRaw) {
+      try {
+        localState = JSON.parse(localRaw);
+      } catch {}
+    }
+
+    const chosen = dbState && dbState.missions ? dbState : localState;
+    if (chosen && chosen.missions) {
+      setMissions(chosen.missions);
+      setEloShieldActive(Boolean(chosen.eloShieldActive));
+      setHotHandBonus(Boolean(chosen.hotHandBonus));
+      const exp = chosen.weekExpiresAt && chosen.weekExpiresAt > Date.now()
+        ? chosen.weekExpiresAt
+        : Date.now() + 7 * 86400 * 1000;
+      setWeekExpiresAt(exp);
+      setWeekSecondsLeft(Math.max(0, Math.floor((exp - Date.now()) / 1000)));
+    } else {
+      const newExp = Date.now() + 7 * 86400 * 1000;
+      setMissions(INITIAL_MISSIONS);
+      setEloShieldActive(false);
+      setHotHandBonus(false);
+      setWeekExpiresAt(newExp);
+      setWeekSecondsLeft(7 * 86400);
+    }
+    setMissionsHydrated(true);
+  }, [loggedSteamId, currentPlayerProfile?.id]);
+
+  // Guardar automaticamente cada cambio de misiones/bonos en localStorage y Supabase
+  useEffect(() => {
+    if (!missionsHydrated || typeof window === "undefined") return;
+    const storageKey = `aimve_missions_${loggedSteamId || "guest"}`;
+    const stateToSave: PersistedMissionState = {
+      missions,
+      eloShieldActive,
+      hotHandBonus,
+      weekExpiresAt,
+    };
+    localStorage.setItem(storageKey, JSON.stringify(stateToSave));
+
+    if (currentPlayerProfile?.id) {
+      supabase
+        .from("leaderboard_players")
+        .update({ mission_data: stateToSave })
+        .eq("id", currentPlayerProfile.id)
+        .then(() => {});
+    }
+  }, [missions, eloShieldActive, hotHandBonus, weekExpiresAt, missionsHydrated, loggedSteamId]);
+
+  // Reloj regresivo real basado en timestamp (sigue corriendo aunque apagues la PC)
+  useEffect(() => {
+    if (!weekExpiresAt) return;
     const t = setInterval(() => {
-      setWeekSecondsLeft((prev) => (prev > 0 ? prev - 1 : 7 * 86400));
+      const remaining = Math.max(0, Math.floor((weekExpiresAt - Date.now()) / 1000));
+      setWeekSecondsLeft(remaining);
     }, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [weekExpiresAt]);
 
   const formatWeekRemaining = (secs: number) => {
     const d = Math.floor(secs / 86400);
@@ -371,9 +444,7 @@ export default function Home() {
     setSteamId("");
   };
 
-  const currentPlayerProfile = loggedSteamId
-    ? leaderboard.find((p) => p.steam_id && p.steam_id === loggedSteamId) || loggedPlayer
-    : null;
+
 
   // Reclamar recompensa de Mision Semanal completada (+ELO real en Supabase + Escudo / Bono)
   const handleClaimMission = async (missionId: string) => {
