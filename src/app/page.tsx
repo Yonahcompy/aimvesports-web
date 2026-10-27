@@ -625,7 +625,7 @@ export default function Home() {
   const finalMap = bannedMaps.length >= 6 ? CS2_MAPS.find((m: any) => !bannedMaps.includes(m.id)) : null;
   // Reloj de 15 segundos por turno con Auto-Veto
   useEffect(() => {
-    if (finalMap || queueSearching || queueCount < 10) return;
+    if (finalMap || !activeMatch) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -642,10 +642,10 @@ export default function Home() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [bannedMaps, finalMap, queueSearching, queueCount]);
+  }, [bannedMaps, finalMap, activeMatch]);
 
   const handleBanMap = (mapId: string) => {
-    if (finalMap || bannedMaps.includes(mapId) || queueSearching || queueCount < 10) return;
+    if (finalMap || bannedMaps.includes(mapId) || !activeMatch) return;
     const mapObj = CS2_MAPS.find((m) => m.id === mapId);
     setBannedMaps([...bannedMaps, mapId]);
     setTimeLeft(15);
@@ -1125,9 +1125,10 @@ export default function Home() {
             <div className="mt-3 md:mt-0 flex flex-wrap items-center gap-3">
               <button
                 onClick={handleStartSoloQueue}
+                disabled={!!activeMatch}
                 className="text-xs px-3.5 py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] font-black uppercase transition cursor-pointer"
               >
-                {queueSearching ? `Buscando Jugadores (${queueCount}/10)...` : "Buscar Nueva Partida Solo Q"}
+                {activeMatch ? "PARTIDA EN CURSO (VETO ACTIVO)" : queueSearching ? "Buscando Jugadores (" + queueCount + "/10)..." : "Buscar Nueva Partida Solo Q"}
               </button>
               <span
                 className={`text-xs px-3 py-1.5 rounded-sm border font-bold ${
@@ -1223,7 +1224,7 @@ export default function Home() {
 
               {/* RELOJ CENTRAL DE VETO PREMIER */}
               <div className="text-center flex flex-col items-center justify-center my-auto">
-                {(queueSearching || queueCount < 10) ? (
+                {!activeMatch ? (
                   <div className="w-full max-w-xs bg-[#171a21] border border-[#a4d007] rounded-sm p-5">
                     <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider animate-pulse mb-2">
                       {queueSearching ? 'BUSCANDO JUGADORES EN COLA...' : 'SALA EN ESPERA DE JUGADORES'}
@@ -1360,7 +1361,7 @@ export default function Home() {
                       <button
                         key={map.id}
                         onClick={() => handleBanMap(map.id)}
-                        disabled={isBanned || Boolean(finalMap) || queueSearching || queueCount < 10}
+                        disabled={isBanned || Boolean(finalMap) || !activeMatch}
                         className={`p-4 rounded-sm border text-left transition flex flex-col justify-between h-32 relative overflow-hidden ${
                           isBanned
                             ? "bg-[#111318]/90 border-red-900/50 opacity-45 cursor-not-allowed"
