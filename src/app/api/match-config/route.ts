@@ -1,65 +1,86 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase";
+
+const ALL_MAPS = [
+  "de_mirage",
+  "de_inferno",
+  "de_dust2",
+  "de_nuke",
+  "de_ancient",
+  "de_anubis",
+  "de_vertigo"
+];
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const map = searchParams.get('map') || 'de_mirage';
-  const matchId = searchParams.get('id') || '1001';
-  const fallbackSteamId = searchParams.get('steam_id') || '76561199724566305';
-  const fallbackNick = searchParams.get('nick') || 'YonathanDHC';
+  try {
+    const { searchParams } = new URL(request.url);
+    const matchId = searchParams.get("match_id");
 
-  const { data: queuedPlayers } = await supabase
-    .from('matchmaking_queue')
-    .select('*')
-    .order('joined_at', { ascending: true })
-    .limit(10);
+    // Buscar por match_id exacto o tomar la partida activa mas reciente
+    let query = supabase.from("active_matches").select("*");
+    if (matchId) {
+      query = query.eq("id", matchId);
+    } else {
+      query = query.in("status", ["live", "veto", "finished"]).order("id", { ascending: false }).limit(1);
+    }
 
-  const team1Players: Record<string, string> = {};
-  const team2Players: Record<string, string> = {};
+    const { data: matches, error } = await query;
+    const match = matches && matches.length > 0 ? matches[0] : null;
 
-  if (queuedPlayers && queuedPlayers.length > 0) {
-    queuedPlayers.slice(0, 5).forEach((p) => {
-      if (p.steam_id) team1Players[p.steam_id] = p.nickname;
+    if (error || !match) {
+      return NextResponse.json({ error: "No se encontro una partida valida en la base de datos" }, { status: 404 });
+    }
+
+    // Determinar el mapa ganador (el unico no incluido en banned_maps)
+    const banned: string[] = match.banned_maps || [];
+    const remainingMaps = ALL_MAPS.filter((m) => !banned.includes(m));
+    const chosenMap = remainingMaps.length === 1 ? remainingMaps[0] : (searchParams.get("map") || "de_mirage");
+
+    // Construir diccionarios de jugadores { "SteamID64": "Nickname" } para MatchZy
+    const alphaPlayers: Record<string, string> = {};
+    (match.team_alpha || []).forEach((p: any) => {
+      if (p?.steam_id) alphaPlayers[String(p.steam_id)] = p.nickname || "Player";
     });
-    queuedPlayers.slice(5, 10).forEach((p) => {
-      if (p.steam_id) team2Players[p.steam_id] = p.nickname;
+
+    const omegaPlayers: Record<string, string> = {};
+    (match.team_omega || []).forEach((p: any) => {
+      if (p?.steam_id) omegaPlayers[String(p.steam_id)] = p.nickname || "Player";
     });
-  } else {
-    team1Players[fallbackSteamId] = fallbackNick;
+
+    const capAlphaName = match.team_alpha?.[0]?.nickname || "Alpha";
+    const capOmegaName = match.team_omega?.[0]?.nickname || "Omega";
+
+    const matchZyConfig = {
+      matchid: Number(match.id),
+      team1: {
+        name: `Equipo ${capAlphaName}`,
+        players: alphaPlayers
+      },
+      team2: {
+        name: `Equipo ${capOmegaName}`,
+        players: omegaPlayers
+      },
+      num_maps: 1,
+      maplist: [chosenMap],
+      map_sides: ["knife"],
+      clinch_series: true,
+      players_per_team: 5,
+      cvars: {
+        hostname: `AimVe Sports | Premier 5v5 #${match.id} | Miami 128-Tick`,
+        mp_overtime_enable: "1",
+        mp_overtime_maxrounds: "6",
+        mp_overtime_startmoney: "10000"
+      }
+    };
+
+    return NextResponse.json(matchZyConfig, {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store, max-age=0"
+      }
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-
-  const captainAlpha =
-    queuedPlayers && queuedPlayers[0] ? queuedPlayers[0].nickname : fallbackNick;
-  const captainOmega =
-    queuedPlayers && queuedPlayers[5] ? queuedPlayers[5].nickname : 'Viper_CCS';
-
-  const matchZyConfig = {
-    matchid: Number(matchId),
-    num_maps: 1,
-    maplist: [map],
-    skip_veto: true,
-    side_type: 'standard',
-    players_per_team: 5,
-    min_players_to_ready: 1,
-    team1: {
-      name: `Equipo ${captainAlpha}`,
-      tag: 'ALPHA',
-      flag: 'VE',
-      players: team1Players,
-    },
-    team2: {
-      name: `Equipo ${captainOmega}`,
-      tag: 'OMEGA',
-      flag: 'VE',
-      players: team2Players,
-    },
-    cvars: {
-      hostname: `AimVe Sports #1 | ${map.toUpperCase()} | 5v5 Competitivo`,
-      mp_overtime_enable: '1',
-      sv_lan: '0',
-      matchzy_whitelist_enabled_default: 'false',
-    },
-  };
-
-  return NextResponse.json(matchZyConfig);
 }

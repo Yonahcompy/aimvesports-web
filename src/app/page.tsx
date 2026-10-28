@@ -787,12 +787,12 @@ const resetVeto = () => {
 
     const roundsLoser = Math.floor(Math.random() * 10) + 2;
     const alphaWins = Math.random() > 0.5;
-    const winnerTeam = alphaWins ? `Equipo ${captainAlphaName}` : "Equipo Viper_CCS";
+    const winnerTeam = alphaWins ? `Equipo ${captainAlphaName}` : `Equipo ${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`;
 
     await supabase.from("matches").insert([
       {
         team_a: `Equipo ${captainAlphaName}`,
-        team_b: "Equipo Viper_CCS",
+        team_b: `Equipo ${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`,
         selected_map: finalMap.id,
         banned_maps: bannedMaps,
         score_a: alphaWins ? 13 : roundsLoser,
@@ -802,8 +802,8 @@ const resetVeto = () => {
       },
     ]);
 
-    const winnerRow = alphaWins ? currentPlayerProfile : leaderboard.find((p) => p.nickname === "Viper_CCS");
-    const loserRow = alphaWins ? leaderboard.find((p) => p.nickname === "Viper_CCS") : currentPlayerProfile;
+    const winnerRow = alphaWins ? currentPlayerProfile : leaderboard.find((p) => p.nickname === `${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`);
+    const loserRow = alphaWins ? leaderboard.find((p) => p.nickname === `${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`) : currentPlayerProfile;
 
     if (winnerRow) {
       const newWins = winnerRow.wins + 1;
