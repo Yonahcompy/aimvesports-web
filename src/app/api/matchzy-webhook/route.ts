@@ -18,7 +18,6 @@ function getInitialCalibratedElo(wins: number): number {
 
 export async function POST(request: Request) {
   try {
-    // 1. Validar llave secreta del servidor de Miami
     const secretHeader = request.headers.get("x-aimve-secret");
     const expectedSecret = process.env.MATCHZY_WEBHOOK_SECRET || "aimve_matchzy_secret_2026";
 
@@ -29,8 +28,7 @@ export async function POST(request: Request) {
     const payload = await request.json();
     const eventType = payload.event || "map_result";
 
-    // Ignorar eventos intermedios de MatchZy (round_end, going_live, series_start)
-    if (eventType !== "map_result" && eventType !== "series_end") {
+    if (eventType !== "map_result" && eventType !== "series_end" && eventType !== "surrender") {
       return NextResponse.json({ ok: true, ignored_event: eventType });
     }
 
@@ -39,7 +37,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Falta matchid en el payload" }, { status: 400 });
     }
 
-    // 2. Buscar la partida en active_matches
     const { data: match, error: fetchErr } = await supabase
       .from("active_matches")
       .select("*")
@@ -54,7 +51,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, already_processed: true });
     }
 
-    // 3. Candado atómico: pasar a 'finishing' para evitar doble cobro entre map_result y series_end
     const { data: lockedMatch, error: lockErr } = await supabase
       .from("active_matches")
       .update({ status: "finishing", turn_expires_at: null })
@@ -67,23 +63,58 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, already_processed: true });
     }
 
-    // 4. Extraer puntajes de Team Alpha (team1) y Team Omega (team2)
-    const scoreA = Number(payload?.team1?.score ?? payload?.score_a ?? 13);
+    // Extraer rondas jugadas y determinar fase de ELO Proporcional
+    const scoreA = Number(payload?.team1?.score ?? payload?.score_a ?? 0);
     const scoreB = Number(payload?.team2?.score ?? payload?.score_b ?? 0);
-    const alphaWins = scoreA >= scoreB;
-    const roundsLoser = Math.min(scoreA, scoreB);
+    const totalRounds = scoreA + scoreB;
+    const maxScore = Math.max(scoreA, scoreB);
+
+    // Determinar quien gano (si hubo surrender explicito de un equipo, gana el contrario)
+    const surrenderedTeam = payload.surrendered_team; // "alpha" | "omega" | undefined
+    const alphaWins = surrenderedTeam
+      ? surrenderedTeam === "omega"
+      : scoreA >= scoreB;
+
+    // Escala de ELO segun rondas jugadas al momento de rendirse o terminar:
+    // - 0 a 3 rondas (ej. 3-0 o antes): 0 ELO (+0 / -0) -> REMAKE
+    // - 4 a 9 rondas (ej. 7-2 o antes): 50% ELO (+13 / -9) -> RENDICION TEMPRANA
+    // - 10+ rondas (ej. 10-8 o partida completa): 100% ELO (+25 / -18) -> COMPLETA
+    let winEloDelta = 25;
+    let lossEloDelta = 18;
+    let matchStatusLabel = "PREMIER 5v5";
+
+    if (totalRounds <= 3 && maxScore < 13) {
+      winEloDelta = 0;
+      lossEloDelta = 0;
+      matchStatusLabel = "REMAKE (0 ELO)";
+    } else if (totalRounds <= 9 && maxScore < 13) {
+      winEloDelta = 13;
+      lossEloDelta = 9;
+      matchStatusLabel = "RENDICION (50% ELO)";
+    } else {
+      const roundsLoser = Math.min(scoreA, scoreB);
+      const stompBonus = maxScore >= 13 && roundsLoser <= 4 ? 4 : 0;
+      winEloDelta = 25 + stompBonus;
+      lossEloDelta = 18;
+      matchStatusLabel = maxScore < 13 ? "RENDICION (100% ELO)" : "PREMIER 5v5";
+    }
 
     const capAlphaName = match.team_alpha?.[0]?.nickname || "Alpha";
     const capOmegaName = match.team_omega?.[0]?.nickname || "Omega";
     const teamAName = `Equipo ${capAlphaName}`;
     const teamBName = `Equipo ${capOmegaName}`;
-    const winnerTeam = alphaWins ? teamAName : teamBName;
+    const winnerTeam =
+      winEloDelta === 0
+        ? "Anulada por Remake (0 ELO)"
+        : alphaWins
+        ? `${teamAName} (+${winEloDelta} ELO)`
+        : `${teamBName} (+${winEloDelta} ELO)`;
 
     const banned: string[] = match.banned_maps || [];
     const remaining = ALL_MAPS.filter((m) => !banned.includes(m));
     const playedMap = payload.map_name || (remaining.length === 1 ? remaining[0] : "de_mirage");
 
-    // 5. Insertar resultado oficial en la tabla 'matches'
+    // Insertar resultado oficial en la tabla 'matches'
     await supabase.from("matches").insert([
       {
         team_a: teamAName,
@@ -92,63 +123,67 @@ export async function POST(request: Request) {
         banned_maps: banned,
         score_a: scoreA,
         score_b: scoreB,
-        status: "PREMIER 5v5",
+        status: matchStatusLabel,
         winner: winnerTeam
       }
     ]);
 
-    // 6. Actualizar ELO, Victorias y Derrotas en leaderboard_players para los jugadores registrados
-    const { data: allLeaderboard } = await supabase.from("leaderboard_players").select("*");
-    if (allLeaderboard && allLeaderboard.length > 0) {
-      const stompBonus = roundsLoser <= 4 ? 4 : 0;
+    // Actualizar ELO solo si se jugaron 4 o mas rondas (winEloDelta > 0)
+    if (winEloDelta > 0) {
+      const { data: allLeaderboard } = await supabase.from("leaderboard_players").select("*");
+      if (allLeaderboard && allLeaderboard.length > 0) {
+        const updateTeamElo = async (teamPlayers: any[], isWinner: boolean) => {
+          for (const p of teamPlayers) {
+            if (!p || String(p.steam_id).startsWith("bot_")) continue;
+            const row = allLeaderboard.find(
+              (lb: any) =>
+                (p.steam_id && String(lb.steam_id) === String(p.steam_id)) ||
+                lb.nickname === p.nickname
+            );
+            if (!row) continue;
 
-      const updateTeamElo = async (teamPlayers: any[], isWinner: boolean) => {
-        for (const p of teamPlayers) {
-          if (!p || String(p.steam_id).startsWith("bot_")) continue;
-          const row = allLeaderboard.find(
-            (lb: any) =>
-              (p.steam_id && String(lb.steam_id) === String(p.steam_id)) ||
-              lb.nickname === p.nickname
-          );
-          if (!row) continue;
+            if (isWinner) {
+              const newWins = (row.wins || 0) + 1;
+              const newTotal = newWins + (row.losses || 0);
+              const bonusHotHand = row.hot_hand_bonus ? 10 : 0;
+              const nextElo =
+                newTotal < 6
+                  ? 0
+                  : newTotal === 6
+                  ? getInitialCalibratedElo(newWins)
+                  : (row.elo || 0) + winEloDelta + bonusHotHand;
 
-          if (isWinner) {
-            const newWins = (row.wins || 0) + 1;
-            const newTotal = newWins + (row.losses || 0);
-            const nextElo =
-              newTotal < 6
-                ? 0
-                : newTotal === 6
-                ? getInitialCalibratedElo(newWins)
-                : (row.elo || 0) + 25 + stompBonus;
+              await supabase
+                .from("leaderboard_players")
+                .update({ elo: nextElo, wins: newWins, hot_hand_bonus: false })
+                .eq("id", row.id);
+            } else {
+              const newLosses = (row.losses || 0) + 1;
+              const newTotal = (row.wins || 0) + newLosses;
+              const protectedByShield = Boolean(row.elo_shield);
+              const nextElo =
+                newTotal < 6
+                  ? 0
+                  : newTotal === 6
+                  ? getInitialCalibratedElo(row.wins || 0)
+                  : protectedByShield
+                  ? row.elo || 0
+                  : Math.max(25, (row.elo || 0) - lossEloDelta);
 
-            await supabase
-              .from("leaderboard_players")
-              .update({ elo: nextElo, wins: newWins })
-              .eq("id", row.id);
-          } else {
-            const newLosses = (row.losses || 0) + 1;
-            const newTotal = (row.wins || 0) + newLosses;
-            const nextElo =
-              newTotal < 6
-                ? 0
-                : newTotal === 6
-                ? getInitialCalibratedElo(row.wins || 0)
-                : Math.max(25, (row.elo || 0) - 18);
-
-            await supabase
-              .from("leaderboard_players")
-              .update({ elo: nextElo, losses: newLosses })
-              .eq("id", row.id);
+              await supabase
+                .from("leaderboard_players")
+                .update({ elo: nextElo, losses: newLosses, elo_shield: false })
+                .eq("id", row.id);
+            }
           }
-        }
-      };
+        };
 
-      await updateTeamElo(match.team_alpha || [], alphaWins);
-      await updateTeamElo(match.team_omega || [], !alphaWins);
+        await updateTeamElo(match.team_alpha || [], alphaWins);
+        await updateTeamElo(match.team_omega || [], !alphaWins);
+      }
     }
 
-    // 7. Marcar partida como 'finished' y liberar el servidor de Miami en 'game_servers'
+    // Marcar partida como 'finished' y liberar el servidor de Miami
     await supabase
       .from("active_matches")
       .update({ status: "finished", turn_expires_at: null })
@@ -162,7 +197,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       match_id: matchId,
-      winner: winnerTeam,
+      tier: matchStatusLabel,
+      elo_awarded: winEloDelta,
+      elo_deducted: lossEloDelta,
       score: `${scoreA}:${scoreB}`,
       server_freed: true
     });
