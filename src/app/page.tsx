@@ -298,14 +298,16 @@ export default function Home() {
     return () => { supabase.removeChannel(sub); };
   }, [activeMatch?.id]);
 
-    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s en veto y live)
+    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s en veto, live y finishing)
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (activeMatch?.id && (activeMatch?.status === 'veto' || activeMatch?.status === 'live')) {
+    if (activeMatch?.id && ["veto", "live", "finishing"].includes(activeMatch?.status)) {
       interval = setInterval(async () => {
-        const { data } = await supabase.from('active_matches').select('*').eq('id', activeMatch.id).single();
+        const { data } = await supabase.from("active_matches").select("*").eq("id", activeMatch.id).single();
         if (data) {
-          if (data.status === 'finished') {
+          if (data.status === "finished") {
+            await fetchMatches();
+            await fetchLeaderboard();
             setActiveMatch(null);
             setBannedMaps([]);
             setQueueSearching(false);
@@ -313,7 +315,7 @@ export default function Home() {
           }
           setActiveMatch(data);
           if (data.banned_maps) {
-            setBannedMaps(prev => prev.length !== data.banned_maps.length ? data.banned_maps : prev);
+            setBannedMaps((prev) => (prev.length !== data.banned_maps.length ? data.banned_maps : prev));
           }
         }
       }, 1500);
@@ -782,42 +784,30 @@ const resetVeto = () => {
     }
   };
 
-  // Refrescar historial y leaderboard automaticamente en todas las pantallas al cerrarse la sala
-  useEffect(() => {
-    if (activeMatch === null) {
-      fetchMatches();
-      fetchLeaderboard();
-      const timer = setTimeout(() => {
-        fetchMatches();
-        fetchLeaderboard();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [activeMatch]);
-
   // Finalizar partida aplicando Calibracion (6 partidas -> 25-100 ELO), Bono Mano Caliente y Escudo de ELO
   const handleSimulateFinish = async () => {
     if (!isAdmin || !finalMap || !activeMatch?.id || savingMatch) return;
     setSavingMatch(true);
 
     try {
-      const res = await fetch("/api/match-veto", {
+      // Paso 1: Bloquear la partida en el servidor para que ninguna otra pestaña duplique el cierre
+      const lockRes = await fetch("/api/match-veto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ match_id: activeMatch.id, action: "finish" }),
+        body: JSON.stringify({ match_id: activeMatch.id, action: "lock_finish" }),
       });
-      const finishData = await res.json();
+      const lockData = await lockRes.json();
 
-      // Si otro admin o pestaña ya cerro esta partida, no duplicar el resultado
-      if (!finishData?.ok) {
-        setActiveMatch(null);
-        setBannedMaps([]);
+      if (!lockData?.ok) {
         await fetchMatches();
         await fetchLeaderboard();
+        setActiveMatch(null);
+        setBannedMaps([]);
         setSavingMatch(false);
         return;
       }
 
+      // Paso 2: Guardar el marcador en 'matches' y actualizar ELO ANTES de liberar a las demas pantallas
       const omegaCapName = activeMatch?.team_omega?.[0]?.nickname || "Omega";
       const roundsLoser = Math.floor(Math.random() * 10) + 2;
       const alphaWins = Math.random() > 0.5;
@@ -893,10 +883,17 @@ const resetVeto = () => {
         await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
       }
 
-      setActiveMatch(null);
-      setBannedMaps([]);
+      // Paso 3: Ahora que el marcador ya existe en DB, marcar 'finished' para que todas las pantallas lo lean
+      await fetch("/api/match-veto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ match_id: activeMatch.id, action: "finish" }),
+      });
+
       await fetchMatches();
       await fetchLeaderboard();
+      setActiveMatch(null);
+      setBannedMaps([]);
     } finally {
       setSavingMatch(false);
     }

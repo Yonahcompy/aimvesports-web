@@ -30,22 +30,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Partida no encontrada" }, { status: 404 });
     }
 
-    // A) Cerrar partida definitivamente (Idempotente: solo se ejecuta una vez por partida)
-    if (action === "finish") {
-      if (match.status === "finished") {
+    // A1) Bloquear partida mientras se guarda el marcador (evita duplicados)
+    if (action === "lock_finish") {
+      if (match.status === "finished" || match.status === "finishing") {
         return NextResponse.json({ ok: false, already_finished: true });
       }
+      const { data: lockedMatch, error: lockErr } = await supabase
+        .from("active_matches")
+        .update({ status: "finishing", turn_expires_at: null })
+        .eq("id", match.id)
+        .eq("status", "live")
+        .select()
+        .single();
+
+      if (lockErr || !lockedMatch) {
+        return NextResponse.json({ ok: false, already_finished: true });
+      }
+      return NextResponse.json({ ok: true, match: lockedMatch });
+    }
+
+    // A2) Confirmar cierre definitivo una vez que el marcador ya fue insertado en 'matches'
+    if (action === "finish") {
       const { data: finishedMatch, error: finErr } = await supabase
         .from("active_matches")
         .update({ status: "finished", turn_expires_at: null })
         .eq("id", match.id)
-        .neq("status", "finished")
         .select()
         .single();
 
-      if (finErr || !finishedMatch) {
-        return NextResponse.json({ ok: false, already_finished: true });
-      }
+      if (finErr) throw finErr;
       return NextResponse.json({ ok: true, match: finishedMatch });
     }
 
