@@ -784,13 +784,47 @@ const resetVeto = () => {
     }
   };
 
+  // Sincronizador en vivo de Resultados Recientes, Leaderboard y Cierre de Sala (cada 2.5s)
+  useEffect(() => {
+    const syncTimer = setInterval(async () => {
+      await fetchMatches();
+      await fetchLeaderboard();
+
+      if (activeMatch?.id) {
+        const { data } = await supabase
+          .from("active_matches")
+          .select("*")
+          .eq("id", activeMatch.id)
+          .single();
+
+        if (data) {
+          if (data.status === "finished") {
+            setActiveMatch(null);
+            setBannedMaps([]);
+            setQueueSearching(false);
+            await fetchMatches();
+            await fetchLeaderboard();
+          } else {
+            setActiveMatch(data);
+            if (data.banned_maps) {
+              setBannedMaps((prev) =>
+                prev.length !== data.banned_maps.length ? data.banned_maps : prev
+              );
+            }
+          }
+        }
+      }
+    }, 2500);
+
+    return () => clearInterval(syncTimer);
+  }, [activeMatch?.id]);
+
   // Finalizar partida aplicando Calibracion (6 partidas -> 25-100 ELO), Bono Mano Caliente y Escudo de ELO
   const handleSimulateFinish = async () => {
     if (!isAdmin || !finalMap || !activeMatch?.id || savingMatch) return;
     setSavingMatch(true);
 
     try {
-      // Paso 1: Bloquear la partida en el servidor para que ninguna otra pestaña duplique el cierre
       const lockRes = await fetch("/api/match-veto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -799,15 +833,14 @@ const resetVeto = () => {
       const lockData = await lockRes.json();
 
       if (!lockData?.ok) {
-        await fetchMatches();
-        await fetchLeaderboard();
         setActiveMatch(null);
         setBannedMaps([]);
+        await fetchMatches();
+        await fetchLeaderboard();
         setSavingMatch(false);
         return;
       }
 
-      // Paso 2: Guardar el marcador en 'matches' y actualizar ELO ANTES de liberar a las demas pantallas
       const omegaCapName = activeMatch?.team_omega?.[0]?.nickname || "Omega";
       const roundsLoser = Math.floor(Math.random() * 10) + 2;
       const alphaWins = Math.random() > 0.5;
@@ -883,7 +916,6 @@ const resetVeto = () => {
         await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
       }
 
-      // Paso 3: Ahora que el marcador ya existe en DB, marcar 'finished' para que todas las pantallas lo lean
       await fetch("/api/match-veto", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
