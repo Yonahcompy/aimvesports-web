@@ -1,222 +1,33 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  CS2_MAPS,
+  PRACTICE_MODES,
+  WeeklyMission,
+  INITIAL_MISSIONS,
+  MatchItem,
+  PersistedMissionState,
+  LeaderboardPlayer,
+  ChatMessage,
+  getInitialCalibratedElo,
+  getEloTierStyle,
+} from "@/lib/ranks";
+import PracticeMissionsSection from "@/components/PracticeMissionsSection";
+import RecentMatchesSection from "@/components/RecentMatchesSection";
+import LeaderboardSection from "@/components/LeaderboardSection";
 
-const CS2_MAPS = [
-  { id: "de_mirage", name: "Mirage", tag: "Clasico 5v5" },
-  { id: "de_inferno", name: "Inferno", tag: "Control tactico" },
-  { id: "de_dust2", name: "Dust II", tag: "Duelos de Aim" },
-  { id: "de_nuke", name: "Nuke", tag: "Doble planta" },
-  { id: "de_ancient", name: "Ancient", tag: "Selva / Medio" },
-  { id: "de_anubis", name: "Anubis", tag: "Rotacion rapida" },
-  { id: "de_vertigo", name: "Vertigo", tag: "Combate corto" },
-];
-
-const PRACTICE_MODES = [
-  {
-    id: "aim_botz",
-    name: "Aim Botz & Recoil Master",
-    desc: "Calentamiento individual de punteria y spray mientras esperas cola",
-    slots: "18/24 Activos",
-    port: "27016",
-  },
-  {
-    id: "dm_ffa",
-    name: "Deathmatch FFA Multi-CFG",
-    desc: "Todos contra todos (AK47 / M4 / AWP / Pistol HS) en Mirage",
-    slots: "14/20 Activos",
-    port: "27017",
-  },
-  {
-    id: "retakes",
-    name: "Retakes 5v5 Competitivo",
-    desc: "Situaciones reales de post-planta de bomba en sitios A y B",
-    slots: "8/10 Activos",
-    port: "27018",
-  },
-];
-
-interface WeeklyMission {
-  id: string;
-  modeId: string;
-  title: string;
-  targetText: string;
-  current: number;
-  goal: number;
-  eloReward: number;
-  eloPenalty: number;
-  bonusLabel: string;
-  claimed: boolean;
-  penalized: boolean;
-}
-
-const INITIAL_MISSIONS: WeeklyMission[] = [
-  {
-    id: "m_aimbotz",
-    modeId: "aim_botz",
-    title: "Calentamiento de Acero (Aim Botz :27016)",
-    targetText: "Elimina 100 Bots con Headshot en el servidor de practica",
-    current: 0,
-    goal: 100,
-    eloReward: 10,
-    eloPenalty: 13,
-    bonusLabel: "+10 ELO & Bono Mano Caliente (+10 ELO en tu prox. victoria 5v5)",
-    claimed: false,
-    penalized: false,
-  },
-  {
-    id: "m_dmffa",
-    modeId: "dm_ffa",
-    title: "Dominio de Duelos (Deathmatch FFA :27017)",
-    targetText: "Consigue 40 bajas con AK-47, M4 o Deagle en FFA",
-    current: 0,
-    goal: 40,
-    eloReward: 15,
-    eloPenalty: 13,
-    bonusLabel: "+15 ELO Directos + 150 Pts Sorteo Mensual Skins",
-    claimed: false,
-    penalized: false,
-  },
-  {
-    id: "m_retakes",
-    modeId: "retakes",
-    title: "Especialista en Defuse (Retakes 5v5 :27018)",
-    targetText: "Gana 10 rondas de Retake plantando o desactivando C4",
-    current: 0,
-    goal: 10,
-    eloReward: 5,
-    eloPenalty: 13,
-    bonusLabel: "+5 ELO & 1 Escudo Protector (0 ELO perdido en tu prox. derrota)",
-    claimed: false,
-    penalized: false,
-  },
-];
-
-// Calculo de ELO inicial tras completar las 6 partidas de calibracion (25 a 100 ELO)
-function getInitialCalibratedElo(winsInSix: number): number {
-  const table: Record<number, number> = {
-    0: 25,
-    1: 35,
-    2: 50,
-    3: 65,
-    4: 80,
-    5: 90,
-    6: 100,
-  };
-  const clamped = Math.max(0, Math.min(6, winsInSix));
-  return table[clamped] ?? 25;
-}
-
-// Sistema de Rango Visual y Brillo Progresivo segun el ELO (Gris hasta 5,000+ Radiante)
-function getEloTierStyle(elo: number, totalMatches: number) {
-  if (totalMatches < 6) {
-    return {
-      tierName: `CALIBRANDO (${totalMatches}/6)`,
-      badgeClass:
-        "bg-[#171a21] text-[#8f98a0] border border-dashed border-[#8f98a0]/60",
-      textClass: "text-[#8f98a0]",
-    };
-  }
-
-  if (elo <= 100) {
-    return {
-      tierName: "HIERRO",
-      badgeClass: "bg-[#1c2026] text-[#9aa5b1] border border-[#52606d]",
-      textClass: "text-[#9aa5b1]",
-    };
-  }
-  if (elo < 500) {
-    return {
-      tierName: "BRONCE ACTIVO",
-      badgeClass:
-        "bg-[#a4d007]/15 text-[#a4d007] border border-[#a4d007]/60 shadow-sm shadow-[#a4d007]/20",
-      textClass: "text-[#a4d007]",
-    };
-  }
-  if (elo < 1000) {
-    return {
-      tierName: "ZAFIRO",
-      badgeClass:
-        "bg-[#66c0f4]/15 text-[#66c0f4] border border-[#66c0f4] shadow-md shadow-[#66c0f4]/30",
-      textClass: "text-[#66c0f4] drop-shadow-[0_0_6px_rgba(102,192,244,0.45)]",
-    };
-  }
-  if (elo < 2000) {
-    return {
-      tierName: "AMATISTA",
-      badgeClass:
-        "bg-purple-500/20 text-purple-300 border border-purple-400 shadow-md shadow-purple-500/40",
-      textClass: "text-purple-300 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]",
-    };
-  }
-  if (elo < 3500) {
-    return {
-      tierName: "FENIX CARMESI",
-      badgeClass:
-        "bg-gradient-to-r from-[#FF5500]/30 to-red-600/30 text-[#ff8547] border border-[#FF5500] shadow-lg shadow-[#FF5500]/40",
-      textClass: "text-[#FF5500] drop-shadow-[0_0_10px_rgba(255,85,0,0.75)]",
-    };
-  }
-  if (elo < 5000) {
-    return {
-      tierName: "ORO IMPERIAL",
-      badgeClass:
-        "bg-gradient-to-r from-yellow-500/30 via-amber-300/25 to-yellow-600/30 text-yellow-300 border border-yellow-400 shadow-lg shadow-yellow-400/50",
-      textClass: "text-yellow-300 drop-shadow-[0_0_12px_rgba(253,224,71,0.85)]",
-    };
-  }
-
-  return {
-    tierName: "LEYENDA 5K+",
-    badgeClass:
-      "bg-gradient-to-r from-yellow-400 via-[#FF5500] to-[#66c0f4] text-[#171a21] font-black border border-white shadow-xl shadow-[#FF5500]/60 animate-pulse",
-    textClass:
-      "text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-[#FF5500] to-[#66c0f4] drop-shadow-[0_0_14px_rgba(255,215,0,0.95)] font-black",
-  };
-}
-
-const TEAM_ALPHA_ROSTER = Array(5).fill({ nick: "ESPERANDO...", elo: 0 });
-
-const TEAM_OMEGA_ROSTER = Array(5).fill({ nick: "ESPERANDO...", elo: 0 });
-
-interface MatchItem {
-  id: number;
-  created_at: string;
-  team_a: string;
-  team_b: string;
-  selected_map: string;
-  score_a: number;
-  score_b: number;
-  status: string;
-  winner: string | null;
-}
-
-interface PersistedMissionState {
-  missions: WeeklyMission[];
-  eloShieldActive: boolean;
-  hotHandBonus: boolean;
-  weekExpiresAt: number;
-}
-
-interface LeaderboardPlayer {
-  id: number;
-  nickname: string;
-  steam_id: string | null;
-  elo: number;
-  wins: number;
-  losses: number;
-  country: string;
-  season_prize: string;
-  mission_data?: PersistedMissionState | null;
-}
-
-interface ChatMessage {
-  id: number;
-  sender: string;
-  text: string;
-  time: string;
-  isSystem?: boolean;
+function isPlayerInMatch(matchObj: any, steamId: string | null): boolean {
+  if (!matchObj || !steamId) return false;
+  const sId = String(steamId);
+  const inAlpha =
+    Array.isArray(matchObj.team_alpha) &&
+    matchObj.team_alpha.some((p: any) => String(p?.steam_id) === sId);
+  const inOmega =
+    Array.isArray(matchObj.team_omega) &&
+    matchObj.team_omega.some((p: any) => String(p?.steam_id) === sId);
+  return inAlpha || inOmega;
 }
 
 export default function Home() {
@@ -231,289 +42,44 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Estados de Cola Premier, Mapa de Practica, Misiones Semanales (7 dias) y Veto
   const [selectedPractice, setSelectedPractice] = useState(PRACTICE_MODES[0]);
   const [missions, setMissions] = useState<WeeklyMission[]>(INITIAL_MISSIONS);
   const [eloShieldActive, setEloShieldActive] = useState(false);
   const [hotHandBonus, setHotHandBonus] = useState(false);
   const [missionBanner, setMissionBanner] = useState<string | null>(null);
-  const [weekSecondsLeft, setWeekSecondsLeft] = useState<number>(6 * 86400 + 14 * 3600 + 42 * 60);
+  const [weekExpiresAt, setWeekExpiresAt] = useState<number>(0);
+  const [missionsHydrated, setMissionsHydrated] = useState(false);
 
   const [queueSearching, setQueueSearching] = useState(false);
-  const [activeMatch, setActiveMatch] = useState<any>(null);
-
-  useEffect(() => {
-    const fetchCola = async () => {
-      const { data } = await supabase.from('matchmaking_queue').select('*').order('joined_at', { ascending: true });
-      if (data) {
-        setQueuedPlayers(data);
-        setQueueCount(data.length);
-      }
-    };
-    fetchCola();
-    
-    const subCola = supabase.channel('cola_publica')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'matchmaking_queue' }, () => { fetchCola(); })
-      .subscribe();
-      
-    return () => { supabase.removeChannel(subCola); };
-  }, []);
   const [queuedPlayers, setQueuedPlayers] = useState<any[]>([]);
   const [queueCount, setQueueCount] = useState(0);
-  // Restaurador de Memoria F5 (Zona Segura)
-  useEffect(() => {
-    const restoreState = async () => {
-      if (!loggedSteamId) return;
-      const { data: matches } = await supabase.from('active_matches').select('*').in('status', ['ready_check', 'veto', 'live']);
-      if (matches) {
-        const myMatch = matches.find((m: any) => 
-          m.team_alpha?.some((p: any) => String(p.steam_id) === String(loggedSteamId)) || 
-          m.team_omega?.some((p: any) => String(p.steam_id) === String(loggedSteamId))
-        );
-        if (myMatch) {
-          setActiveMatch(myMatch);
-          if (myMatch.banned_maps) setBannedMaps(myMatch.banned_maps);
-          setQueueSearching(false);
-          return;
-        }
-      }
-      const { data: qData } = await supabase.from('matchmaking_queue').select('*');
-      if (qData && qData.some((p: any) => String(p.steam_id) === String(loggedSteamId))) {
-        setQueueSearching(true);
-      }
-    };
-    restoreState();
-  }, [loggedSteamId]);
+  const [activeMatch, setActiveMatch] = useState<any>(null);
 
-    useEffect(() => {
-    if (!activeMatch?.id) return;
-    const sub = supabase.channel('match_sync_' + activeMatch.id)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'active_matches', filter: 'id=eq.' + activeMatch.id }, (payload) => {
-        console.log("¡Sincronización recibida de la nube!", payload.new);
-        if ((payload.new as any)?.banned_maps) {
-          setBannedMaps((payload.new as any).banned_maps);
-        }
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(sub); };
-  }, [activeMatch?.id]);
-
-    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s en ready_check, veto, live y finishing)
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (activeMatch?.id && ["ready_check", "veto", "live", "finishing"].includes(activeMatch?.status)) {
-      interval = setInterval(async () => {
-        const { data } = await supabase.from("active_matches").select("*").eq("id", activeMatch.id).single();
-        if (data) {
-          if (data.status === "finished") {
-            const wasReadyCheck = activeMatch.status === "ready_check";
-            const userAccepted = Array.isArray(activeMatch.accepted_players) &&
-              activeMatch.accepted_players.map(String).includes(String(loggedSteamId));
-
-            await fetchMatches();
-            await fetchLeaderboard();
-            setActiveMatch(null);
-            setBannedMaps([]);
-
-            if (wasReadyCheck) {
-              setQueueSearching(userAccepted);
-              setMissionBanner(
-                userAccepted
-                  ? "Un jugador no acepto la partida a tiempo. Has sido devuelto a la cola automaticamente."
-                  : "No aceptaste la partida en 20 segundos. Has sido retirado de la cola."
-              );
-            } else {
-              setQueueSearching(false);
-            }
-            return;
-          }
-          setActiveMatch(data);
-          if (Array.isArray(data.chat_messages) && data.chat_messages.length > 0) {
-            setChatMessages(data.chat_messages);
-          }
-          if (data.banned_maps) {
-            setBannedMaps((prev) => (prev.length !== data.banned_maps.length ? data.banned_maps : prev));
-          }
-        }
-      }, 1500);
-    }
-    return () => clearInterval(interval);
-  }, [activeMatch?.id, activeMatch?.status, loggedSteamId]);
-
-  // Anti-Fantasmas: Avisar al backend si el jugador cierra la pestaña para sacarlo de la cola
-  useEffect(() => {
-    const handleUnload = () => {
-      if (loggedSteamId && !activeMatch) {
-        navigator.sendBeacon('/api/queue?leave_steam_id=' + loggedSteamId);
-      }
-    };
-    window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
-  }, [loggedSteamId, activeMatch]);
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState<number>(15);
   const [matches, setMatches] = useState<MatchItem[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardPlayer[]>([]);
   const [savingMatch, setSavingMatch] = useState(false);
 
-  const currentPlayerProfile = loggedSteamId
-    ? leaderboard.find((p) => p.steam_id && p.steam_id === loggedSteamId) || loggedPlayer
-    : null;
-
-  
-  // Estados del Chat de Equipo durante el Veto
-  const captainAlphaName = activeMatch?.team_alpha?.[0]?.nickname || "Capitán Alpha";
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: 1,
       sender: "SISTEMA",
-      text: "Emparejamiento Premier completado (10/10). Recuerda completar tus misiones semanales en los mapas de practica en 7 dias para ganar bonos y evitar -13 ELO (mitad de una victoria).",
+      text: "Bienvenido al Lobby Premier de AimVe Sports. Usa el chat para coordinar el veto de mapas con la sala.",
       time: "Ahora",
       isSystem: true,
     },
-    ]);
+  ]);
 
-  const [weekExpiresAt, setWeekExpiresAt] = useState<number>(0);
-  const [missionsHydrated, setMissionsHydrated] = useState(false);
+  const currentPlayerProfile = loggedSteamId
+    ? leaderboard.find((p) => p.steam_id && p.steam_id === loggedSteamId) || loggedPlayer
+    : null;
 
-  // Suscripcion en Tiempo Real a la Cola 5v5
-  useEffect(() => {
-        const channelMatches = supabase
-      .channel('realtime_matches')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'active_matches' },
-        (payload) => {
-          setActiveMatch(payload.new);
-          if ((payload.new as any)?.banned_maps) setBannedMaps((payload.new as any).banned_maps);
-          setQueueSearching(false);
-          setChatMessages((prev) => [
-            ...prev,
-            { id: Date.now(), sender: "SISTEMA", text: "¡10/10 Jugadores Confirmados! Partida armada por ELO. Iniciando Veto...", time: "Ahora", isSystem: true }
-          ]);
-        }
-      )
-      .subscribe();
+  const isAdmin = ["76561199757155122", "76561199724566305"].includes(String(loggedSteamId));
+  const captainAlphaName = activeMatch?.team_alpha?.[0]?.nickname || "Capitán Alpha";
 
-    const channel = supabase
-      .channel('realtime_queue')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'matchmaking_queue' },
-        async () => {
-          try {
-            const res = await fetch('/api/queue');
-            const data = await res.json();
-            if (data && typeof data.count === 'number') {
-              setQueuedPlayers(data.queue || []);
-              setQueueCount(Math.max(1, data.count));
-            }
-          } catch (err) {}
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  // Transicion automatica al Veto cuando llegamos a 10 reales
-  useEffect(() => {
-    if (queueSearching && queueCount >= 10) {
-      const t = setTimeout(() => {
-        setQueueSearching(false);
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now(),
-            sender: "SISTEMA",
-            text: "¡10/10 Jugadores Confirmados! Iniciando Veto de Mapas...",
-            time: "Ahora",
-            isSystem: true,
-          },
-        ]);
-      }, 1000);
-      return () => clearTimeout(t);
-    }
-  }, [queueCount, queueSearching]);
-
-  // Cargar progreso guardado (de Supabase o localStorage) al detectar cuenta o abrir la web
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storageKey = `aimve_missions_${loggedSteamId || "guest"}`;
-    const dbState = currentPlayerProfile?.mission_data;
-    const localRaw = localStorage.getItem(storageKey);
-    let localState: PersistedMissionState | null = null;
-
-    if (localRaw) {
-      try {
-        localState = JSON.parse(localRaw);
-      } catch {}
-    }
-
-    const chosen = dbState && dbState.missions ? dbState : localState;
-    if (chosen && chosen.missions) {
-      setMissions(chosen.missions);
-      setEloShieldActive(Boolean(chosen.eloShieldActive));
-      setHotHandBonus(Boolean(chosen.hotHandBonus));
-      const exp = chosen.weekExpiresAt && chosen.weekExpiresAt > Date.now()
-        ? chosen.weekExpiresAt
-        : Date.now() + 7 * 86400 * 1000;
-      setWeekExpiresAt(exp);
-      setWeekSecondsLeft(Math.max(0, Math.floor((exp - Date.now()) / 1000)));
-    } else {
-      const newExp = Date.now() + 7 * 86400 * 1000;
-      setMissions(INITIAL_MISSIONS);
-      setEloShieldActive(false);
-      setHotHandBonus(false);
-      setWeekExpiresAt(newExp);
-      setWeekSecondsLeft(7 * 86400);
-    }
-    setMissionsHydrated(true);
-  }, [loggedSteamId, currentPlayerProfile?.id]);
-
-  // Guardar automaticamente cada cambio de misiones/bonos en localStorage y Supabase
-  useEffect(() => {
-    if (!missionsHydrated || typeof window === "undefined") return;
-    const storageKey = `aimve_missions_${loggedSteamId || "guest"}`;
-    const stateToSave: PersistedMissionState = {
-      missions,
-      eloShieldActive,
-      hotHandBonus,
-      weekExpiresAt,
-    };
-    localStorage.setItem(storageKey, JSON.stringify(stateToSave));
-
-    if (currentPlayerProfile?.id) {
-      supabase
-        .from("leaderboard_players")
-        .update({ mission_data: stateToSave })
-        .eq("id", currentPlayerProfile.id)
-        .then(() => {});
-    }
-  }, [missions, eloShieldActive, hotHandBonus, weekExpiresAt, missionsHydrated, loggedSteamId]);
-
-  // Reloj regresivo real basado en timestamp (sigue corriendo aunque apagues la PC)
-  useEffect(() => {
-    if (!weekExpiresAt) return;
-    const t = setInterval(() => {
-      const remaining = Math.max(0, Math.floor((weekExpiresAt - Date.now()) / 1000));
-      setWeekSecondsLeft(remaining);
-    }, 1000);
-    return () => clearInterval(t);
-  }, [weekExpiresAt]);
-
-  const formatWeekRemaining = (secs: number) => {
-    const d = Math.floor(secs / 86400);
-    const h = Math.floor((secs % 86400) / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    return `${d}d ${h}h ${m}m`;
-  };
-
-  // Cargar unicamente hasta 6 partidas del dia actual desde Supabase
-  const fetchMatches = async () => {
+  const fetchMatches = useCallback(async () => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -534,9 +100,9 @@ export default function Home() {
         .limit(6);
       if (fallback) setMatches(fallback.slice(0, 6));
     }
-  };
+  }, []);
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = useCallback(async () => {
     const { data } = await supabase
       .from("leaderboard_players")
       .select("*")
@@ -545,14 +111,264 @@ export default function Home() {
 
     if (data) {
       setLeaderboard(data);
-      const savedSteam = typeof window !== "undefined" ? localStorage.getItem("aimve_steam_id") : null;
+      const savedSteam =
+        typeof window !== "undefined" ? localStorage.getItem("aimve_steam_id") : null;
       if (savedSteam) {
         const found = data.find((p: LeaderboardPlayer) => p.steam_id === savedSteam);
         if (found) setLoggedPlayer(found);
       }
     }
-  };
+  }, []);
 
+  const fetchCola = useCallback(async () => {
+    const { data } = await supabase
+      .from("matchmaking_queue")
+      .select("*")
+      .order("joined_at", { ascending: true });
+    if (data) {
+      setQueuedPlayers(data);
+      setQueueCount(data.length);
+    }
+  }, []);
+
+  // 1. Suscripcion Unica y Filtrada a Cola y Partidas Activas
+  useEffect(() => {
+    fetchCola();
+
+    const subCola = supabase
+      .channel("cola_publica")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "matchmaking_queue" },
+        () => {
+          fetchCola();
+        }
+      )
+      .subscribe();
+
+    const subMatches = supabase
+      .channel("realtime_matches_filtered")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "active_matches" },
+        (payload) => {
+          const newMatch = payload.new as any;
+          if (isPlayerInMatch(newMatch, loggedSteamId)) {
+            setActiveMatch(newMatch);
+            if (newMatch.banned_maps) setBannedMaps(newMatch.banned_maps);
+            if (Array.isArray(newMatch.chat_messages) && newMatch.chat_messages.length > 0) {
+              setChatMessages(newMatch.chat_messages);
+            }
+            setQueueSearching(false);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subCola);
+      supabase.removeChannel(subMatches);
+    };
+  }, [fetchCola, loggedSteamId]);
+
+  // 2. Restaurador de Memoria F5 (Solo recupera partidas donde participe el jugador actual)
+  useEffect(() => {
+    const restoreState = async () => {
+      if (!loggedSteamId) return;
+      const { data: matchesData } = await supabase
+        .from("active_matches")
+        .select("*")
+        .in("status", ["ready_check", "veto", "live"]);
+
+      if (matchesData) {
+        const myMatch = matchesData.find((m: any) => isPlayerInMatch(m, loggedSteamId));
+        if (myMatch) {
+          setActiveMatch(myMatch);
+          if (myMatch.banned_maps) setBannedMaps(myMatch.banned_maps);
+          if (Array.isArray(myMatch.chat_messages) && myMatch.chat_messages.length > 0) {
+            setChatMessages(myMatch.chat_messages);
+          }
+          setQueueSearching(false);
+          return;
+        }
+      }
+
+      const { data: qData } = await supabase.from("matchmaking_queue").select("*");
+      if (qData && qData.some((p: any) => String(p.steam_id) === String(loggedSteamId))) {
+        setQueueSearching(true);
+      }
+    };
+    restoreState();
+  }, [loggedSteamId]);
+
+  // 3. Canal Realtime exclusivo de la sala activa del jugador
+  useEffect(() => {
+    if (!activeMatch?.id) return;
+    const sub = supabase
+      .channel("match_sync_" + activeMatch.id)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "active_matches",
+          filter: "id=eq." + activeMatch.id,
+        },
+        (payload) => {
+          const updated = payload.new as any;
+          if (updated?.banned_maps) {
+            setBannedMaps(updated.banned_maps);
+          }
+          if (Array.isArray(updated?.chat_messages) && updated.chat_messages.length > 0) {
+            setChatMessages(updated.chat_messages);
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(sub);
+    };
+  }, [activeMatch?.id]);
+
+  // 4. Polling Adaptativo (Punto C: 1.5s en ReadyCheck/Veto, 10s en Live, 0s en reposo)
+  useEffect(() => {
+    if (!activeMatch?.id) return;
+    const status = activeMatch.status;
+    if (!["ready_check", "veto", "live", "finishing"].includes(status)) return;
+
+    const pollIntervalMs = status === "live" ? 10000 : 1500;
+
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from("active_matches")
+        .select("*")
+        .eq("id", activeMatch.id)
+        .single();
+
+      if (data) {
+        if (data.status === "finished") {
+          const wasReadyCheck = activeMatch.status === "ready_check";
+          const userAccepted =
+            Array.isArray(activeMatch.accepted_players) &&
+            activeMatch.accepted_players.map(String).includes(String(loggedSteamId));
+
+          await fetchMatches();
+          await fetchLeaderboard();
+          await fetchCola();
+          setActiveMatch(null);
+          setBannedMaps([]);
+
+          if (wasReadyCheck) {
+            setQueueSearching(userAccepted);
+            setMissionBanner(
+              userAccepted
+                ? "Un jugador no acepto la partida a tiempo. Has sido devuelto a la cola automaticamente."
+                : "No aceptaste la partida en 20 segundos. Has sido retirado de la cola."
+            );
+          } else {
+            setQueueSearching(false);
+          }
+          return;
+        }
+
+        setActiveMatch(data);
+        if (Array.isArray(data.chat_messages) && data.chat_messages.length > 0) {
+          setChatMessages(data.chat_messages);
+        }
+        if (data.banned_maps) {
+          setBannedMaps((prev) =>
+            prev.length !== data.banned_maps.length ? data.banned_maps : prev
+          );
+        }
+      }
+    }, pollIntervalMs);
+
+    return () => clearInterval(interval);
+  }, [activeMatch?.id, activeMatch?.status, loggedSteamId, fetchMatches, fetchLeaderboard, fetchCola]);
+
+  // 5. Refresco Ligero de Historial y Leaderboard en reposo (Cada 25s en vez de 2.5s -> 90% menos carga en DB)
+  useEffect(() => {
+    const idleSync = setInterval(() => {
+      fetchMatches();
+      fetchLeaderboard();
+      if (queueSearching && !activeMatch) {
+        fetchCola();
+      }
+    }, 25000);
+    return () => clearInterval(idleSync);
+  }, [fetchMatches, fetchLeaderboard, fetchCola, queueSearching, activeMatch]);
+
+  // Anti-Fantasmas al cerrar pestaña
+  useEffect(() => {
+    const handleUnload = () => {
+      if (loggedSteamId && !activeMatch) {
+        navigator.sendBeacon("/api/queue?leave_steam_id=" + loggedSteamId);
+      }
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
+  }, [loggedSteamId, activeMatch]);
+
+  // Hidratar misiones
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `aimve_missions_${loggedSteamId || "guest"}`;
+    const dbState = currentPlayerProfile?.mission_data;
+    const localRaw = localStorage.getItem(storageKey);
+    let localState: PersistedMissionState | null = null;
+
+    if (localRaw) {
+      try {
+        localState = JSON.parse(localRaw);
+      } catch {}
+    }
+
+    const chosen = dbState && dbState.missions ? dbState : localState;
+    if (chosen && chosen.missions) {
+      setMissions(chosen.missions);
+      setEloShieldActive(Boolean(chosen.eloShieldActive));
+      setHotHandBonus(Boolean(chosen.hotHandBonus));
+      const exp =
+        chosen.weekExpiresAt && chosen.weekExpiresAt > Date.now()
+          ? chosen.weekExpiresAt
+          : Date.now() + 7 * 86400 * 1000;
+      setWeekExpiresAt(exp);
+    } else {
+      const newExp = Date.now() + 7 * 86400 * 1000;
+      setMissions(INITIAL_MISSIONS);
+      setEloShieldActive(false);
+      setHotHandBonus(false);
+      setWeekExpiresAt(newExp);
+    }
+    setMissionsHydrated(true);
+  }, [loggedSteamId, currentPlayerProfile?.id]);
+
+  // Guardar misiones
+  useEffect(() => {
+    if (!missionsHydrated || typeof window === "undefined") return;
+    const storageKey = `aimve_missions_${loggedSteamId || "guest"}`;
+    const stateToSave: PersistedMissionState = {
+      missions,
+      eloShieldActive,
+      hotHandBonus,
+      weekExpiresAt,
+    };
+    localStorage.setItem(storageKey, JSON.stringify(stateToSave));
+
+    if (currentPlayerProfile?.id) {
+      supabase
+        .from("leaderboard_players")
+        .update({
+          mission_data: stateToSave,
+          elo_shield: eloShieldActive,
+          hot_hand_bonus: hotHandBonus,
+        })
+        .eq("id", currentPlayerProfile.id)
+        .then(() => {});
+    }
+  }, [missions, eloShieldActive, hotHandBonus, weekExpiresAt, missionsHydrated, loggedSteamId, currentPlayerProfile?.id]);
+
+  // Login inicial de Steam
   useEffect(() => {
     fetchMatches();
     fetchLeaderboard();
@@ -584,7 +400,7 @@ export default function Home() {
           });
       }
     }
-  }, []);
+  }, [fetchMatches, fetchLeaderboard]);
 
   const handleLogoutSteam = () => {
     if (loggedSteamId) {
@@ -596,68 +412,70 @@ export default function Home() {
     setSteamId("");
   };
 
-
-
-  // Reclamar recompensa de Mision Semanal completada (+ELO real en Supabase + Escudo / Bono)
-  const handleClaimMission = async (missionId: string) => {
-    const targetMission = missions.find((m) => m.id === missionId);
-    if (!targetMission || targetMission.claimed || targetMission.current < targetMission.goal) return;
-
-    setMissions((prev) =>
-      prev.map((m) => (m.id === missionId ? { ...m, claimed: true } : m))
-    );
-
-    if (missionId === "m_aimbotz") setHotHandBonus(true);
-    if (missionId === "m_retakes") setEloShieldActive(true);
-
-    if (currentPlayerProfile) {
-      const totalPlayed = currentPlayerProfile.wins + currentPlayerProfile.losses;
-      if (totalPlayed < 6) {
-        setMissionBanner(
-          `Mision completada (${targetMission.title}): Bono especial activado. Para sumar +${targetMission.eloReward} ELO directos debes completar primero tus 6 partidas de calibracion (${totalPlayed}/6).`
-        );
+  const handleClaimMission = useCallback(
+    async (missionId: string) => {
+      const targetMission = missions.find((m) => m.id === missionId);
+      if (!targetMission || targetMission.claimed || targetMission.current < targetMission.goal)
         return;
+
+      setMissions((prev) =>
+        prev.map((m) => (m.id === missionId ? { ...m, claimed: true } : m))
+      );
+
+      if (missionId === "m_aimbotz") setHotHandBonus(true);
+      if (missionId === "m_retakes") setEloShieldActive(true);
+
+      if (currentPlayerProfile) {
+        const totalPlayed = currentPlayerProfile.wins + currentPlayerProfile.losses;
+        if (totalPlayed < 6) {
+          setMissionBanner(
+            `Mision completada (${targetMission.title}): Bono especial activado. Para sumar +${targetMission.eloReward} ELO directos debes completar primero tus 6 partidas de calibracion (${totalPlayed}/6).`
+          );
+          return;
+        }
+        await fetch("/api/elo-update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "mission_claim",
+            player_id: currentPlayerProfile.id,
+            mission_reward: targetMission.eloReward,
+          }),
+        });
+        await fetchLeaderboard();
       }
-      await fetch("/api/elo-update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "mission_claim",
-          player_id: currentPlayerProfile.id,
-          mission_reward: targetMission.eloReward,
-        }),
-      });
-      await fetchLeaderboard();
-    }
 
-    setMissionBanner(
-      `Mision completada: +${targetMission.eloReward} ELO acreditados a tu perfil (${targetMission.title}).`
-    );
-  };
+      setMissionBanner(
+        `Mision completada: +${targetMission.eloReward} ELO acreditados a tu perfil (${targetMission.title}).`
+      );
+    },
+    [missions, currentPlayerProfile, fetchLeaderboard]
+  );
 
-  // Sumar progreso de entrenamiento en una mision y sincronizar con /api/practice-webhook
-  const handleAdvanceMissionProgress = (missionId: string) => {
-    const target = missions.find((m) => m.id === missionId);
-    setMissions((prev) =>
-      prev.map((m) =>
-        m.id === missionId ? { ...m, current: m.goal, penalized: false } : m
-      )
-    );
-    if (loggedSteamId && target) {
-      fetch("/api/practice-webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          steam_id: loggedSteamId,
-          mode_id: target.modeId,
-          amount: target.goal,
-        }),
-      }).catch(() => {});
-    }
-  };
+  const handleAdvanceMissionProgress = useCallback(
+    (missionId: string) => {
+      const target = missions.find((m) => m.id === missionId);
+      setMissions((prev) =>
+        prev.map((m) =>
+          m.id === missionId ? { ...m, current: m.goal, penalized: false } : m
+        )
+      );
+      if (loggedSteamId && target) {
+        fetch("/api/practice-webhook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            steam_id: loggedSteamId,
+            mode_id: target.modeId,
+            amount: target.goal,
+          }),
+        }).catch(() => {});
+      }
+    },
+    [missions, loggedSteamId]
+  );
 
-  // Aplicar corte de 7 dias: cada mision NO completada descuenta -5 ELO en Supabase
-  const handleExpireWeekCheck = async () => {
+  const handleExpireWeekCheck = useCallback(async () => {
     const incomplete = missions.filter((m) => m.current < m.goal && !m.penalized);
     if (incomplete.length === 0) {
       setMissionBanner(
@@ -688,14 +506,13 @@ export default function Home() {
     }
 
     setMissionBanner(
-      `Plazo de 7 dias vencido: Se descontaron -${totalPenalty} ELO (-13 ELO, mitad de una victoria, por cada una de las ${incomplete.length} misiones sin completar).`
+      `Plazo de 7 dias vencido: Se descontaron -${totalPenalty} ELO (-13 ELO por cada una de las ${incomplete.length} misiones sin completar).`
     );
-  };
+  }, [missions, currentPlayerProfile, fetchLeaderboard]);
 
-  // Busqueda de Partida Solo Queue conectada a /api/queue en Supabase
   const handleStartSoloQueue = async () => {
     if (!loggedSteamId) {
-      console.warn("Clic denegado silenciosamente: No es tu turno.");
+      setMissionBanner("Debes conectar tu cuenta de Steam arriba a la derecha antes de entrar a la cola.");
       return;
     }
     setQueueSearching(true);
@@ -707,57 +524,60 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          steam_id: loggedSteamId || "jugador_local",
-          nickname: currentPlayerProfile ? currentPlayerProfile.nickname : "Jugador_Random",
+          steam_id: loggedSteamId,
+          nickname: currentPlayerProfile ? currentPlayerProfile.nickname : "Jugador",
           elo: currentPlayerProfile ? currentPlayerProfile.elo : 0,
           country: currentPlayerProfile ? currentPlayerProfile.country : "VE",
         }),
       });
       const data = await res.json();
-      if (data && typeof data.count === "number") {
-        setQueuedPlayers(data.queue || []);
-        setQueueCount(data.count);
+      if (data?.status === "matched" && data?.match) {
+        setActiveMatch(data.match);
+        setQueueSearching(false);
+      } else if (Array.isArray(data?.queue)) {
+        setQueuedPlayers(data.queue);
+        setQueueCount(data.queue.length);
       }
     } catch {}
   };
 
-    const isAlphaTurn = bannedMaps.length % 2 === 0;
+  const isAlphaTurn = bannedMaps.length % 2 === 0;
   const currentTurn = isAlphaTurn ? "EQUIPO ALPHA" : "EQUIPO OMEGA";
-  const finalMap = bannedMaps.length >= 6 ? CS2_MAPS.find((m: any) => !bannedMaps.includes(m.id)) : null;
-    // Reloj Maestro (Controla los 20s de Aceptar Partida y los 15s de cada turno de Veto desde la nube)
+  const finalMap =
+    bannedMaps.length >= 6 ? CS2_MAPS.find((m) => !bannedMaps.includes(m.id)) : null;
+
+  // Reloj Maestro (Solo corre cuando hay Ready Check o Veto activo)
   useEffect(() => {
-    if (!activeMatch || (activeMatch.status !== "veto" && activeMatch.status !== "ready_check")) return;
-    
+    if (!activeMatch || (activeMatch.status !== "veto" && activeMatch.status !== "ready_check"))
+      return;
+
     const t = setInterval(() => {
       if (activeMatch.turn_expires_at) {
         const exp = new Date(activeMatch.turn_expires_at).getTime();
         const remaining = Math.max(0, Math.floor((exp - Date.now()) / 1000));
         setTimeLeft(remaining);
-        
+
         if (remaining === 0) {
           if (activeMatch.status === "ready_check") {
             fetch("/api/match-veto", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ match_id: activeMatch.id, action: "ready_timeout" })
+              body: JSON.stringify({ match_id: activeMatch.id, action: "ready_timeout" }),
             }).catch(() => {});
           } else if (activeMatch.status === "veto") {
             fetch("/api/match-veto", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ match_id: activeMatch.id, is_timeout: true })
+              body: JSON.stringify({ match_id: activeMatch.id, is_timeout: true }),
             }).catch(() => {});
           }
         }
       }
     }, 1000);
     return () => clearInterval(t);
-  }, [activeMatch, loggedSteamId]);
+  }, [activeMatch]);
 
-  // Veto Seguro: La orden viaja directamente al Juez del Backend (/api/match-veto)
-  const isAdmin = ["76561199757155122", "76561199724566305"].includes(String(loggedSteamId));
-
-  // Alerta Sonora Competitiva cuando se encuentra partida (10/10 -> Ready Check)
+  // Alerta Sonora Competitiva en Ready Check
   useEffect(() => {
     if (activeMatch?.status === "ready_check") {
       try {
@@ -781,7 +601,6 @@ export default function Home() {
     }
   }, [activeMatch?.id, activeMatch?.status]);
 
-  // Confirmar asistencia en el Ready Check (20 segundos)
   const handleAcceptMatch = async () => {
     if (!activeMatch?.id || !loggedSteamId) return;
     try {
@@ -791,8 +610,8 @@ export default function Home() {
         body: JSON.stringify({
           match_id: activeMatch.id,
           steam_id: loggedSteamId,
-          action: "accept_match"
-        })
+          action: "accept_match",
+        }),
       });
       const data = await res.json();
       if (data?.ok && data?.match) {
@@ -802,7 +621,8 @@ export default function Home() {
   };
 
   const handleBanMap = async (mapId: string) => {
-    if (finalMap || bannedMaps.includes(mapId) || !activeMatch || activeMatch.status !== "veto") return;
+    if (finalMap || bannedMaps.includes(mapId) || !activeMatch || activeMatch.status !== "veto")
+      return;
     try {
       await fetch("/api/match-veto", {
         method: "POST",
@@ -810,14 +630,19 @@ export default function Home() {
         body: JSON.stringify({
           match_id: activeMatch.id,
           steam_id: loggedSteamId,
-          map_id: mapId
-        })
+          map_id: mapId,
+        }),
       });
     } catch {}
   };
-const resetVeto = () => {
-    if (!isAdmin) return;
-    if (activeMatch?.id) { fetch('/api/match-veto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ match_id: activeMatch.id, action: 'reset' }) }).catch(()=>{}); }
+
+  const resetVeto = () => {
+    if (!isAdmin || !activeMatch?.id) return;
+    fetch("/api/match-veto", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ match_id: activeMatch.id, action: "reset" }),
+    }).catch(() => {});
     setBannedMaps([]);
     setTimeLeft(15);
   };
@@ -833,7 +658,7 @@ const resetVeto = () => {
       )?.nickname ||
       "Jugador";
 
-    const optimisticMsg = {
+    const optimisticMsg: ChatMessage = {
       id: Date.now(),
       sender: myRealNick,
       text: msgToSend,
@@ -865,45 +690,6 @@ const resetVeto = () => {
     }
   };
 
-  // Sincronizador en vivo de Resultados Recientes, Leaderboard y Cierre de Sala (cada 2.5s)
-  useEffect(() => {
-    const syncTimer = setInterval(async () => {
-      await fetchMatches();
-      await fetchLeaderboard();
-
-      if (activeMatch?.id) {
-        const { data } = await supabase
-          .from("active_matches")
-          .select("*")
-          .eq("id", activeMatch.id)
-          .single();
-
-        if (data) {
-          if (data.status === "finished") {
-            setActiveMatch(null);
-            setBannedMaps([]);
-            setQueueSearching(false);
-            await fetchMatches();
-            await fetchLeaderboard();
-          } else {
-            setActiveMatch(data);
-            if (Array.isArray(data.chat_messages) && data.chat_messages.length > 0) {
-            setChatMessages(data.chat_messages);
-          }
-          if (data.banned_maps) {
-              setBannedMaps((prev) =>
-                prev.length !== data.banned_maps.length ? data.banned_maps : prev
-              );
-            }
-          }
-        }
-      }
-    }, 2500);
-
-    return () => clearInterval(syncTimer);
-  }, [activeMatch?.id]);
-
-  // Finalizar partida aplicando Calibracion (6 partidas -> 25-100 ELO), Bono Mano Caliente y Escudo de ELO
   const handleSimulateFinish = async () => {
     if (!isAdmin || !finalMap || !activeMatch?.id || savingMatch) return;
     setSavingMatch(true);
@@ -939,7 +725,7 @@ const resetVeto = () => {
           score_a: alphaWins ? 13 : roundsLoser,
           score_b: alphaWins ? roundsLoser : 13,
           status: "PREMIER 5v5",
-          winner: winnerTeam,
+          winner: `${winnerTeam} (+25 ELO)`,
         },
       ]);
 
@@ -1047,16 +833,12 @@ const resetVeto = () => {
     <div className="min-h-screen bg-[#171a21] text-[#c7d5e0] font-sans selection:bg-[#66c0f4] selection:text-[#171a21] relative overflow-x-hidden">
       <div className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-tr from-[#1b2838] via-[#66c0f4]/15 to-[#FF5500]/10 blur-[130px] rounded-full" />
 
-      {/* Barra de Navegacion Superior (Header) */}
+      {/* Header */}
       <header className="border-b border-[#2a475e]/60 bg-[#171a21]/90 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3.5 group cursor-pointer">
             <div className="w-16 h-16 rounded-sm border border-[#2a475e] bg-[#171a21] flex items-center justify-center p-1 shadow-md">
-              <img
-                src="/logos.png"
-                alt="AimVe Sports Logo"
-                className="w-full h-full object-contain"
-              />
+              <img src="/logos.png" alt="AimVe Sports Logo" className="w-full h-full object-contain" />
             </div>
             <div className="flex flex-col">
               <div className="text-xl font-black tracking-wider text-white leading-none">
@@ -1070,16 +852,16 @@ const resetVeto = () => {
 
           <nav className="hidden md:flex items-center gap-7 text-sm font-semibold text-[#c7d5e0]">
             <a href="#practica" className="hover:text-[#a4d007] transition">
-              Practica & Misiones (7d)
+              Practica &amp; Misiones (7d)
             </a>
             <a href="#lobby" className="hover:text-[#66c0f4] transition">
-              Solo Queue & Veto
+              Solo Queue &amp; Veto
             </a>
             <a href="#resultados" className="hover:text-[#66c0f4] transition">
               Partidas del Dia
             </a>
             <a href="#premios" className="hover:text-[#FF5500] transition">
-              Rangos ELO & Skins
+              Rangos ELO &amp; Skins
             </a>
           </nav>
 
@@ -1131,7 +913,6 @@ const resetVeto = () => {
         </div>
       </header>
 
-      {/* Seccion Principal (Hero) */}
       <main className="max-w-7xl mx-auto px-6 pt-20 pb-24 text-center relative z-10">
         <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-xs font-bold text-[#66c0f4] mb-8 shadow-inner">
           <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-pulse"></span>
@@ -1152,7 +933,10 @@ const resetVeto = () => {
         </h1>
 
         <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
-          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), cumple tus <span className="text-[#a4d007] font-semibold">Misiones Semanales en el Mapa de Practica</span> (7 dias de plazo o <span className="text-red-400 font-bold">-13 ELO</span> por mision incompleta) y brilla hasta <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
+          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), cumple tus{" "}
+          <span className="text-[#a4d007] font-semibold">Misiones Semanales en el Mapa de Practica</span> (7 dias de plazo o{" "}
+          <span className="text-red-400 font-bold">-13 ELO</span> por mision incompleta) y brilla hasta{" "}
+          <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -1167,196 +951,25 @@ const resetVeto = () => {
             href="#practica"
             className="w-full sm:w-auto px-8 py-4 rounded-sm border border-[#66c0f4]/60 hover:border-[#66c0f4] bg-[#1b2838]/90 hover:bg-[#2a475e]/60 text-white font-bold text-base transition"
           >
-            MAPA DE PRACTICA & MISIONES (7D)
+            MAPA DE PRACTICA &amp; MISIONES (7D)
           </a>
         </div>
 
-        {/* SECCION: SERVIDOR DE PRACTICA 24/7 + MISIONES SEMANALES (7 DIAS / -5 ELO PENALIZACION) */}
-        <section id="practica" className="mt-20 text-left">
-          <div className="p-6 rounded-sm bg-gradient-to-r from-[#1b2838] via-[#171a21] to-[#1b2838] border border-[#66c0f4]/50 shadow-xl">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div>
-                <div className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#a4d007] mb-1">
-                  <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-ping"></span>
-                  WARMUP SERVER 24/7 | NO PIERDES TU LUGAR EN LA COLA 5v5
-                </div>
-                <h2 className="text-2xl md:text-3xl font-black text-white">
-                  MAPA DE PRACTICA & MISIONES SEMANALES
-                </h2>
-                <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-                  Entrena punteria mientras se llena el Lobby 5v5. Tienes <span className="text-white font-bold">7 dias</span> para completar las misiones semanales: ganarás ELO directo y escudos, pero cada mision no completada al cierre de la semana descuenta <span className="text-red-400 font-bold">-13 ELO</span>.
-                </p>
-              </div>
+        {/* COMPONENTE MODULAR 1: PRACTICA & MISIONES (Aisla el reloj semanal) */}
+        <PracticeMissionsSection
+          selectedPractice={selectedPractice}
+          setSelectedPractice={setSelectedPractice}
+          missions={missions}
+          weekExpiresAt={weekExpiresAt}
+          missionBanner={missionBanner}
+          setMissionBanner={setMissionBanner}
+          handleExpireWeekCheck={handleExpireWeekCheck}
+          handleClaimMission={handleClaimMission}
+          handleAdvanceMissionProgress={handleAdvanceMissionProgress}
+          isAdmin={isAdmin}
+        />
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <a
-                  href={`steam://connect/mia1.aimvesports.com:${selectedPractice.port}`}
-                  className="px-6 py-3.5 rounded-sm bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white font-black text-xs uppercase tracking-wider text-center transition shadow-lg shadow-[#66c0f4]/25"
-                >
-                  &gt; ENTRAR A PRACTICAR ({selectedPractice.name.split(" ")[0].toUpperCase()})
-                </a>
-              </div>
-            </div>
-
-            {/* Selector de los 3 Modos de Practica */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5 pt-5 border-t border-[#2a475e]/60">
-              {PRACTICE_MODES.map((mode) => {
-                const active = selectedPractice.id === mode.id;
-                return (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    onClick={() => setSelectedPractice(mode)}
-                    className={`p-4 rounded-sm border text-left transition cursor-pointer ${
-                      active
-                        ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-md shadow-[#66c0f4]/20"
-                        : "bg-[#171a21]/80 border-[#2a475e] hover:border-[#66c0f4]/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                      <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
-                        PUERTO :{mode.port}
-                      </span>
-                      <span className="text-[#a4d007]">{mode.slots}</span>
-                    </div>
-                    <div className="text-sm font-black text-white">{mode.name}</div>
-                    <p className="text-[11px] text-[#8f98a0] mt-1">{mode.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* PANEL DE MISIONES SEMANALES (7 DIAS DE PLAZO / -5 ELO SI NO SE CUMPLE) */}
-            <div className="mt-6 pt-6 border-t border-[#2a475e]">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span className="text-xs font-black uppercase tracking-wider text-white">
-                    MISIONES SEMANALES DE ENTRENAMIENTO
-                  </span>
-                  <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/50 text-[#66c0f4]">
-                    CIERRE EN: {formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)
-                  </span>
-                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-sm bg-red-950/70 border border-red-500/50 text-red-300">
-                    INCUMPLIMIENTO: -5 ELO POR MISION
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleExpireWeekCheck}
-                  className="text-[11px] px-3 py-1.5 rounded-sm bg-[#2a475e]/70 hover:bg-red-600/80 text-white font-bold transition cursor-pointer"
-                >
-                  Simular Corte de 7 Dias (Verificar -5 ELO)
-                </button>
-              </div>
-
-              {missionBanner && (
-                <div className="mb-4 p-3 rounded-sm bg-[#111318] border border-[#a4d007] text-xs text-[#a4d007] font-bold flex items-center justify-between">
-                  <span>{missionBanner}</span>
-                  <button
-                    type="button"
-                    onClick={() => setMissionBanner(null)}
-                    className="text-[#8f98a0] hover:text-white font-black ml-4 cursor-pointer"
-                  >
-                    X
-                  </button>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {missions.map((m) => {
-                  const pct = Math.min(100, Math.round((m.current / m.goal) * 100));
-                  const completed = m.current >= m.goal;
-
-                  return (
-                    <div
-                      key={m.id}
-                      className={`p-4 rounded-sm border flex flex-col justify-between ${
-                        m.claimed
-                          ? "bg-[#111318]/90 border-[#a4d007]/60"
-                          : m.penalized
-                          ? "bg-red-950/25 border-red-500/60"
-                          : completed
-                          ? "bg-[#171a21] border-[#a4d007]"
-                          : "bg-[#171a21] border-[#2a475e]"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                          <span className="text-[#66c0f4]">PLAZO: 7 DIAS</span>
-                          {m.claimed ? (
-                            <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
-                          ) : m.penalized ? (
-                            <span className="text-red-400">VENCIDA (-{m.eloPenalty} ELO)</span>
-                          ) : completed ? (
-                            <span className="text-[#a4d007] animate-pulse">LISTA PARA RECLAMAR</span>
-                          ) : (
-                            <span className="text-red-300">SI NO CUMPLES: -{m.eloPenalty} ELO</span>
-                          )}
-                        </div>
-
-                        <div className="text-sm font-black text-white">{m.title}</div>
-                        <p className="text-[11px] text-[#8f98a0] mt-1">{m.targetText}</p>
-
-                        {/* Barra de Progreso */}
-                        <div className="mt-3">
-                          <div className="flex items-center justify-between text-[11px] font-mono font-bold mb-1">
-                            <span className="text-[#c7d5e0]">
-                              Progreso: {m.current} / {m.goal}
-                            </span>
-                            <span className={completed ? "text-[#a4d007]" : "text-[#66c0f4]"}>
-                              {pct}%
-                            </span>
-                          </div>
-                          <div className="w-full h-2 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/60">
-                            <div
-                              className={`h-full transition-all duration-500 ${
-                                completed ? "bg-[#a4d007]" : "bg-[#66c0f4]"
-                              }`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mt-2.5 text-[10px] font-bold text-[#a4d007]">
-                          Recompensa: {m.bonusLabel}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 pt-3 border-t border-[#2a475e]/40 flex items-center gap-2">
-                        {m.claimed ? (
-                          <span className="w-full text-center py-1.5 rounded-sm bg-[#a4d007]/15 text-[#a4d007] text-[11px] font-black uppercase">
-                            Mision Semanal Completada OK
-                          </span>
-                        ) : completed ? (
-                          <button
-                            type="button"
-                            onClick={() => handleClaimMission(m.id)}
-                            className="w-full py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] text-[11px] font-black uppercase transition cursor-pointer"
-                          >
-                            Reclamar +{m.eloReward} ELO y Bono
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleAdvanceMissionProgress(m.id)}
-                              className="w-full py-1.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white text-[11px] font-bold uppercase transition cursor-pointer"
-                            >
-                              Completar en Practica ({m.goal}/{m.goal})
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* SECCION 1: SALA PREMIER 5v5 (10 JUGADORES + VETO + CHAT DE EQUIPO) */}
+        {/* SECCION LOBBY 5v5, READY CHECK, VETO & CHAT */}
         <section id="lobby" className="mt-20 text-left">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
             <div>
@@ -1364,7 +977,7 @@ const resetVeto = () => {
                 MODO PREMIER SOLO QUEUE | 10 JUGADORES EMPAREJADOS POR ELO
               </div>
               <h2 className="text-3xl font-black text-white">
-                SALA DE PARTIDA, VETO & CHAT DE EQUIPO
+                SALA DE PARTIDA, VETO &amp; CHAT DE EQUIPO
               </h2>
             </div>
             <div className="mt-3 md:mt-0 flex flex-wrap items-center gap-3">
@@ -1373,36 +986,46 @@ const resetVeto = () => {
                 disabled={!!activeMatch}
                 className="text-xs px-3.5 py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] font-black uppercase transition cursor-pointer"
               >
-                {activeMatch ? "PARTIDA EN CURSO (VETO ACTIVO)" : queueSearching ? "Buscando Jugadores (" + queueCount + "/10)..." : "Buscar Nueva Partida Solo Q"}
+                {activeMatch
+                  ? "PARTIDA EN CURSO"
+                  : queueSearching
+                  ? `Buscando Jugadores (${queueCount}/10)...`
+                  : "Buscar Nueva Partida Solo Q"}
               </button>
-              <span
-                className={`text-xs px-3 py-1.5 rounded-sm border font-bold ${
-                  finalMap
-                    ? "bg-[#a4d007]/20 border-[#a4d007] text-[#a4d007]"
-                    : isAlphaTurn
-                    ? "bg-[#66c0f4]/15 border-[#66c0f4] text-[#66c0f4]"
-                    : "bg-[#FF5500]/15 border-[#FF5500] text-[#FF5500]"
-                }`}
-              >
-                {finalMap
-                  ? `MAPA ELEGIDO: ${finalMap.name.toUpperCase()}`
-                  : `TURNO ACTIVO: ${currentTurn.toUpperCase()} (${timeLeft}s)`}
-              </span>
-              <button
-                onClick={resetVeto}
-                className="text-xs px-3 py-1.5 rounded-sm bg-[#2a475e]/60 hover:bg-[#2a475e] text-white font-bold transition cursor-pointer"
-              >
-                Reiniciar Veto
-              </button>
+              {activeMatch && (
+                <span
+                  className={`text-xs px-3 py-1.5 rounded-sm border font-bold ${
+                    finalMap
+                      ? "bg-[#a4d007]/20 border-[#a4d007] text-[#a4d007]"
+                      : isAlphaTurn
+                      ? "bg-[#66c0f4]/15 border-[#66c0f4] text-[#66c0f4]"
+                      : "bg-[#FF5500]/15 border-[#FF5500] text-[#FF5500]"
+                  }`}
+                >
+                  {finalMap
+                    ? `MAPA ELEGIDO: ${finalMap.name.toUpperCase()}`
+                    : activeMatch.status === "ready_check"
+                    ? `ACEPTAR PARTIDA (${timeLeft}s)`
+                    : `TURNO ACTIVO: ${currentTurn} (${timeLeft}s)`}
+                </span>
+              )}
+              {isAdmin && activeMatch && (
+                <button
+                  onClick={resetVeto}
+                  className="text-xs px-3 py-1.5 rounded-sm bg-[#2a475e]/60 hover:bg-[#2a475e] text-white font-bold transition cursor-pointer"
+                >
+                  Reiniciar Veto (Admin)
+                </button>
+              )}
             </div>
           </div>
 
           <div className="p-6 rounded-sm bg-[#1b2838]/90 border border-[#2a475e] shadow-xl">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start mb-8 pb-6 border-b border-[#2a475e]/60">
-              {/* BANDO 1 */}
+              {/* BANDO ALPHA */}
               <div
                 className={`p-4 rounded-sm border transition-all duration-300 ${
-                  finalMap
+                  !activeMatch || finalMap
                     ? "bg-[#171a21]/90 border-[#2a475e]"
                     : isAlphaTurn
                     ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-lg shadow-[#66c0f4]/20"
@@ -1415,7 +1038,9 @@ const resetVeto = () => {
                       CT
                     </span>
                     <div>
-                      <div className="text-white font-black text-base leading-none">{activeMatch ? "EQUIPO ALPHA" : "EN COLA (1-5)"}</div>
+                      <div className="text-white font-black text-base leading-none">
+                        {activeMatch ? "EQUIPO ALPHA" : "EN COLA (1-5)"}
+                      </div>
                       <span className="text-[10px] text-[#66c0f4] font-bold">
                         5 Jugadores Individuales | Solo Queue
                       </span>
@@ -1424,21 +1049,41 @@ const resetVeto = () => {
                   {!finalMap && (
                     <span
                       className={`px-2 py-0.5 text-[10px] font-black uppercase rounded-sm ${
-                        isAlphaTurn
+                        activeMatch?.status === "veto" && isAlphaTurn
                           ? "bg-[#66c0f4] text-[#171a21] animate-pulse"
                           : "bg-[#171a21] text-[#8f98a0] border border-[#2a475e]"
                       }`}
                     >
-                      {activeMatch?.status === "veto" ? (isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA") : activeMatch?.status === "ready_check" ? "CONFIRMANDO" : "EN COLA"}
+                      {activeMatch?.status === "veto"
+                        ? isAlphaTurn
+                          ? "VETANDO AHORA"
+                          : "EN ESPERA"
+                        : activeMatch?.status === "ready_check"
+                        ? "CONFIRMANDO"
+                        : "EN COLA"}
                     </span>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
-                  {(activeMatch?.team_alpha?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || Array.from({ length: 5 }).map((_, i) => queuedPlayers[i] ? { nick: queuedPlayers[i].nickname, elo: queuedPlayers[i].elo } : { nick: "ESPERANDO...", elo: 0 })).map((p: any, idx: number) => {
-                    const displayNick = p.nick;
-                    const displayElo = p.elo;
-                    const style = getEloTierStyle(displayElo, p.matches);
+                  {(
+                    activeMatch?.team_alpha?.map((pl: any, idx: number) => ({
+                      nick: pl.nickname,
+                      elo: pl.elo,
+                      country: pl.country || "VE",
+                      role: idx === 0 ? "CAPITAN" : undefined,
+                    })) ||
+                    Array.from({ length: 5 }).map((_, i) =>
+                      queuedPlayers[i]
+                        ? {
+                            nick: queuedPlayers[i].nickname,
+                            elo: queuedPlayers[i].elo,
+                            country: queuedPlayers[i].country || "VE",
+                          }
+                        : { nick: "ESPERANDO...", elo: 0 }
+                    )
+                  ).map((p: any, idx: number) => {
+                    const style = getEloTierStyle(p.elo, 6);
                     return (
                       <div
                         key={idx}
@@ -1446,10 +1091,12 @@ const resetVeto = () => {
                       >
                         <div className="flex items-center gap-2">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
-                          <span className="font-bold text-white">{displayNick}</span>
-                          <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
-                            {p.country}
-                          </span>
+                          <span className="font-bold text-white">{p.nick}</span>
+                          {p.country && (
+                            <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
+                              {p.country}
+                            </span>
+                          )}
                           {p.role === "CAPITAN" && (
                             <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#66c0f4]/20 text-[#66c0f4] font-black">
                               CAPITAN
@@ -1457,7 +1104,7 @@ const resetVeto = () => {
                           )}
                         </div>
                         <span className={`font-mono text-[10px] px-2 py-0.5 rounded-sm font-bold ${style.badgeClass}`}>
-                          {p.matches < 6 ? `CALIBRANDO (${p.matches}/6)` : `${displayElo} ELO`}
+                          {p.elo} ELO
                         </span>
                       </div>
                     );
@@ -1465,12 +1112,12 @@ const resetVeto = () => {
                 </div>
               </div>
 
-              {/* RELOJ CENTRAL DE VETO PREMIER */}
+              {/* RELOJ CENTRAL */}
               <div className="text-center flex flex-col items-center justify-center my-auto">
                 {!activeMatch ? (
                   <div className="w-full max-w-xs bg-[#171a21] border border-[#a4d007] rounded-sm p-5">
                     <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider animate-pulse mb-2">
-                      {queueSearching ? 'BUSCANDO JUGADORES EN COLA...' : 'SALA EN ESPERA DE JUGADORES'}
+                      {queueSearching ? "BUSCANDO JUGADORES EN COLA..." : "SALA EN ESPERA DE JUGADORES"}
                     </div>
                     <div className="text-3xl font-black text-white font-mono">
                       {queueCount} / 10
@@ -1479,7 +1126,7 @@ const resetVeto = () => {
                       Aprovecha para avanzar tus misiones semanales en el Mapa de Practica.
                     </p>
                     <a
-                      href={`steam://connect/mia1.aimvesports.com:${selectedPractice.port}`}
+                      href={`steam://connect/miami1.aimvesports.com:${selectedPractice.port}`}
                       className="inline-block w-full py-2 rounded-sm bg-[#66c0f4] text-[#171a21] font-black text-[11px] uppercase"
                     >
                       Ir a Practicar Mientras Carga
@@ -1514,7 +1161,10 @@ const resetVeto = () => {
                       })}
                     </div>
                     <div className="text-[10px] font-bold text-[#c7d5e0] uppercase mb-3">
-                      {Array.isArray(activeMatch?.accepted_players) ? activeMatch.accepted_players.length : 0} / 10 Jugadores Listos
+                      {Array.isArray(activeMatch?.accepted_players)
+                        ? activeMatch.accepted_players.length
+                        : 0}{" "}
+                      / 10 Jugadores Listos
                     </div>
                     {Array.isArray(activeMatch?.accepted_players) &&
                     activeMatch.accepted_players.map(String).includes(String(loggedSteamId)) ? (
@@ -1570,10 +1220,10 @@ const resetVeto = () => {
                 )}
               </div>
 
-              {/* BANDO 2 */}
+              {/* BANDO OMEGA */}
               <div
                 className={`p-4 rounded-sm border transition-all duration-300 ${
-                  finalMap
+                  !activeMatch || finalMap
                     ? "bg-[#171a21]/90 border-[#2a475e]"
                     : !isAlphaTurn
                     ? "bg-[#FF5500]/15 border-[#FF5500] shadow-lg shadow-[#FF5500]/20"
@@ -1584,17 +1234,25 @@ const resetVeto = () => {
                   {!finalMap && (
                     <span
                       className={`px-2 py-0.5 text-[10px] font-black uppercase rounded-sm ${
-                        !isAlphaTurn
+                        activeMatch?.status === "veto" && !isAlphaTurn
                           ? "bg-[#FF5500] text-white animate-pulse"
                           : "bg-[#171a21] text-[#8f98a0] border border-[#2a475e]"
                       }`}
                     >
-                      {activeMatch?.status === "veto" ? (!isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA") : activeMatch?.status === "ready_check" ? "CONFIRMANDO" : "EN COLA"}
+                      {activeMatch?.status === "veto"
+                        ? !isAlphaTurn
+                          ? "VETANDO AHORA"
+                          : "EN ESPERA"
+                        : activeMatch?.status === "ready_check"
+                        ? "CONFIRMANDO"
+                        : "EN COLA"}
                     </span>
                   )}
                   <div className="flex items-center gap-2.5 ml-auto text-right">
                     <div>
-                      <div className="text-white font-black text-base leading-none">{activeMatch ? "EQUIPO OMEGA" : "EN COLA (6-10)"}</div>
+                      <div className="text-white font-black text-base leading-none">
+                        {activeMatch ? "EQUIPO OMEGA" : "EN COLA (6-10)"}
+                      </div>
                       <span className="text-[10px] text-[#FF5500] font-bold">
                         5 Jugadores Individuales | Solo Queue
                       </span>
@@ -1606,8 +1264,24 @@ const resetVeto = () => {
                 </div>
 
                 <div className="space-y-1.5">
-                  {(activeMatch?.team_omega?.map((pl: any) => ({ nick: pl.nickname, elo: pl.elo })) || Array.from({ length: 5 }).map((_, i) => queuedPlayers[i + 5] ? { nick: queuedPlayers[i + 5].nickname, elo: queuedPlayers[i + 5].elo } : { nick: "ESPERANDO...", elo: 0 })).map((p: any, idx: number) => {
-                    const style = getEloTierStyle(p.elo, p.matches);
+                  {(
+                    activeMatch?.team_omega?.map((pl: any, idx: number) => ({
+                      nick: pl.nickname,
+                      elo: pl.elo,
+                      country: pl.country || "VE",
+                      role: idx === 0 ? "CAPITAN" : undefined,
+                    })) ||
+                    Array.from({ length: 5 }).map((_, i) =>
+                      queuedPlayers[i + 5]
+                        ? {
+                            nick: queuedPlayers[i + 5].nickname,
+                            elo: queuedPlayers[i + 5].elo,
+                            country: queuedPlayers[i + 5].country || "VE",
+                          }
+                        : { nick: "ESPERANDO...", elo: 0 }
+                    )
+                  ).map((p: any, idx: number) => {
+                    const style = getEloTierStyle(p.elo, 6);
                     return (
                       <div
                         key={idx}
@@ -1616,9 +1290,11 @@ const resetVeto = () => {
                         <div className="flex items-center gap-2">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#a4d007]"></span>
                           <span className="font-bold text-white">{p.nick}</span>
-                          <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
-                            {p.country}
-                          </span>
+                          {p.country && (
+                            <span className="text-[9px] px-1 rounded-sm bg-[#1b2838] text-[#8f98a0] border border-[#2a475e]">
+                              {p.country}
+                            </span>
+                          )}
                           {p.role === "CAPITAN" && (
                             <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-[#FF5500]/20 text-[#FF5500] font-black">
                               CAPITAN
@@ -1626,7 +1302,7 @@ const resetVeto = () => {
                           )}
                         </div>
                         <span className={`font-mono text-[10px] px-2 py-0.5 rounded-sm font-bold ${style.badgeClass}`}>
-                          {p.matches < 6 ? `CALIBRANDO (${p.matches}/6)` : `${p.elo} ELO`}
+                          {p.elo} ELO
                         </span>
                       </div>
                     );
@@ -1635,7 +1311,7 @@ const resetVeto = () => {
               </div>
             </div>
 
-            {/* CUERPO DIVIDIDO: LOS 7 MAPAS A LA IZQUIERDA + CHAT DE EQUIPO A LA DERECHA */}
+            {/* PIZARRA DE 7 MAPAS + CHAT EN VIVO */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
               <div className="lg:col-span-2 flex flex-col justify-between">
                 <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 gap-3">
@@ -1647,7 +1323,7 @@ const resetVeto = () => {
                       <button
                         key={map.id}
                         onClick={() => handleBanMap(map.id)}
-                        disabled={isBanned || Boolean(finalMap) || !activeMatch}
+                        disabled={isBanned || Boolean(finalMap) || !activeMatch || activeMatch.status !== "veto"}
                         className={`p-4 rounded-sm border text-left transition flex flex-col justify-between h-32 relative overflow-hidden ${
                           isBanned
                             ? "bg-[#111318]/90 border-red-900/50 opacity-45 cursor-not-allowed"
@@ -1665,15 +1341,11 @@ const resetVeto = () => {
                         </div>
 
                         <div>
-                          <div className="text-base font-black text-white">
-                            {map.name}
-                          </div>
-                          <div className="text-[11px] text-[#8f98a0]">
-                            {map.tag}
-                          </div>
+                          <div className="text-base font-black text-white">{map.name}</div>
+                          <div className="text-[11px] text-[#8f98a0]">{map.tag}</div>
                         </div>
 
-                        {!isBanned && !isWinner && (
+                        {!isBanned && !isWinner && activeMatch?.status === "veto" && (
                           <div
                             className={`text-[10px] font-bold opacity-0 group-hover:opacity-100 transition ${
                               isAlphaTurn ? "text-[#66c0f4]" : "text-[#FF5500]"
@@ -1692,36 +1364,42 @@ const resetVeto = () => {
                     <div>
                       <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider flex items-center gap-2">
                         <span>MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})</span>
-                        <a
-                          href={`/api/match-config?match_id=${activeMatch?.id || ""}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[10px] px-2 py-0.5 rounded-sm bg-[#1b2838] border border-[#66c0f4]/50 text-[#66c0f4] hover:bg-[#66c0f4] hover:text-[#171a21] transition"
-                        >
-                          Ver JSON Servidor
-                        </a>
+                        {isAdmin && (
+                          <a
+                            href={`/api/match-config?match_id=${activeMatch?.id || ""}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] px-2 py-0.5 rounded-sm bg-[#1b2838] border border-[#66c0f4]/50 text-[#66c0f4] hover:bg-[#66c0f4] hover:text-[#171a21] transition"
+                          >
+                            Ver JSON MatchZy
+                          </a>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 mt-1.5">
                         <code className="text-[11px] px-2 py-0.5 rounded-sm bg-[#111318] border border-[#2a475e] text-[#c7d5e0] font-mono">
-                          .load https://www.aimvesports.com/api/match-config?match_id=${activeMatch?.id || ""}
+                          {activeMatch?.server_connect || "connect miami1.aimvesports.com:27025"}
                         </code>
                         <button
                           type="button"
                           onClick={() => {
                             navigator.clipboard.writeText(
-                              `.load https://www.aimvesports.com/api/match-config?match_id=${activeMatch?.id || ""}`
+                              activeMatch?.server_connect || "connect miami1.aimvesports.com:27025"
                             );
                           }}
                           className="text-[10px] px-2 py-0.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-bold transition cursor-pointer"
                         >
-                          Copiar Comando CS2
+                          Copiar IP Consola
                         </button>
                       </div>
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
                       <a
-                        href={`steam://connect/${(activeMatch?.server_connect || "miami1.aimvesports.com:27025").replace("connect ", "").trim()}`}
+                        href={`steam://connect/${(
+                          activeMatch?.server_connect || "miami1.aimvesports.com:27025"
+                        )
+                          .replace("connect ", "")
+                          .trim()}`}
                         className="w-full sm:w-auto text-center px-6 py-3 rounded-sm bg-gradient-to-r from-[#a4d007] to-[#7aa600] hover:brightness-110 text-[#171a21] font-black text-xs uppercase tracking-wider transition"
                       >
                         &gt; ENTRAR A LA PARTIDA (ABRIR CS2)
@@ -1740,14 +1418,14 @@ const resetVeto = () => {
                 )}
               </div>
 
-              {/* Columna Derecha (1/3): CHAT EN VIVO DEL EQUIPO DURANTE EL VETO */}
+              {/* CHAT DEL LOBBY */}
               <div className="bg-[#171a21] border border-[#2a475e] rounded-sm flex flex-col justify-between h-full min-h-[290px]">
                 <div className="px-4 py-2.5 border-b border-[#2a475e] flex items-center justify-between bg-[#111318]">
                   <span className="text-xs font-black uppercase tracking-wider text-[#66c0f4]">
-                    CHAT DEL LOBBY (TU EQUIPO)
+                    CHAT DEL LOBBY (SALA ACTIVA)
                   </span>
                   <span className="text-[10px] font-bold text-[#a4d007]">
-                    5 Conectados
+                    {activeMatch ? "10 en Sala" : `${queueCount} en Cola`}
                   </span>
                 </div>
 
@@ -1806,7 +1484,7 @@ const resetVeto = () => {
                       type="text"
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
-                      placeholder="Escribe a tu equipo que mapa vetar..."
+                      placeholder="Escribe a la sala que mapa vetar..."
                       className="flex-1 px-3 py-1.5 bg-[#171a21] border border-[#2a475e] rounded-sm text-xs text-white focus:outline-none focus:border-[#66c0f4]"
                     />
                     <button
@@ -1822,192 +1500,13 @@ const resetVeto = () => {
           </div>
         </section>
 
-        {/* SECCION 2: RESULTADOS DE PARTIDAS RECIENTES (MAXIMO 6 POR DIA) */}
-        <section id="resultados" className="mt-24 text-left">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-8">
-            <div>
-              <div className="text-[#a4d007] text-xs font-black uppercase tracking-widest mb-1">
-                HISTORIAL DEL DIA | MAXIMO 6 PARTIDAS DIARIAS EN PANTALLA
-              </div>
-              <h2 className="text-3xl font-black text-white">
-                RESULTADOS DE PARTIDAS RECIENTES ({matches.length}/6 HOY)
-              </h2>
-            </div>
-            <span className="text-xs text-[#8f98a0] mt-2 md:mt-0">
-              Mostrando unicamente las ultimas 6 partidas del dia para mantener la web ligera.
-            </span>
-          </div>
+        {/* COMPONENTE MODULAR 2: RESULTADOS RECIENTES */}
+        <RecentMatchesSection matches={matches} />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {matches.slice(0, 6).map((m) => (
-              <div
-                key={m.id}
-                className="p-5 rounded-sm bg-[#1b2838]/80 border border-[#2a475e] flex items-center justify-between"
-              >
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#66c0f4]">
-                    MAPA: {m.selected_map}
-                  </span>
-                  <div className="text-base font-black text-white mt-1">
-                    {m.team_a} <span className="text-[#8f98a0] font-normal">vs</span> {m.team_b}
-                  </div>
-                  <span className="text-xs text-[#a4d007] font-bold mt-1">
-                    Ganador: {m.winner} (+25 ELO)
-                  </span>
-                </div>
-
-                <div className="text-right">
-                  <div className="px-4 py-2 rounded-sm bg-[#171a21] border border-[#2a475e] font-mono text-xl font-black text-white">
-                    <span className={m.score_a > m.score_b ? "text-[#a4d007]" : "text-[#8f98a0]"}>
-                      {m.score_a}
-                    </span>
-                    {" : "}
-                    <span className={m.score_b > m.score_a ? "text-[#a4d007]" : "text-[#8f98a0]"}>
-                      {m.score_b}
-                    </span>
-                  </div>
-                  <span className="text-[10px] uppercase font-bold text-[#8f98a0] block mt-1">
-                    {m.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* SECCION 3: ESCALA DE BRILLO ELO & LEADERBOARD EN TIEMPO REAL */}
-        <section id="premios" className="mt-24 text-left">
-          <div className="flex flex-col md:flex-row md:items-end justify-between mb-6">
-            <div>
-              <div className="text-[#FF5500] text-xs font-black uppercase tracking-widest mb-1">
-                PROGRESION DE RANGOS & BRILLO ELO | TEMPORADA FUNDADORES
-              </div>
-              <h2 className="text-3xl font-black text-white">
-                LEADERBOARD TOP ELO & RECOMPENSAS
-              </h2>
-            </div>
-            <span className="text-xs font-bold px-3 py-1.5 bg-[#FF5500]/15 text-[#FF5500] border border-[#FF5500]/40 rounded-sm mt-2 md:mt-0">
-              6 PARTIDAS CALIBRAN TU ELO INICIAL (25 A 100 ELO)
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 mb-6 p-4 rounded-sm bg-[#111318] border border-[#2a475e]">
-            <div className="p-2.5 rounded-sm bg-[#171a21] border border-dashed border-[#8f98a0]/50 text-center">
-              <div className="text-[10px] font-black text-[#8f98a0]">CALIBRACION</div>
-              <div className="text-xs font-mono font-bold text-white mt-0.5">1 a 6 Partidas</div>
-              <div className="text-[9px] text-[#8f98a0]">Asigna 25-100 ELO</div>
-            </div>
-            <div className="p-2.5 rounded-sm bg-[#1c2026] border border-[#52606d] text-center">
-              <div className="text-[10px] font-black text-[#9aa5b1]">HIERRO</div>
-              <div className="text-xs font-mono font-bold text-[#9aa5b1] mt-0.5">25 - 100 ELO</div>
-              <div className="text-[9px] text-[#8f98a0]">Gris Acero</div>
-            </div>
-            <div className="p-2.5 rounded-sm bg-[#a4d007]/15 border border-[#a4d007]/60 text-center">
-              <div className="text-[10px] font-black text-[#a4d007]">BRONCE</div>
-              <div className="text-xs font-mono font-bold text-[#a4d007] mt-0.5">101 - 499 ELO</div>
-              <div className="text-[9px] text-[#c7d5e0]">Verde Tactico</div>
-            </div>
-            <div className="p-2.5 rounded-sm bg-[#66c0f4]/15 border border-[#66c0f4] text-center shadow-sm shadow-[#66c0f4]/30">
-              <div className="text-[10px] font-black text-[#66c0f4]">ZAFIRO</div>
-              <div className="text-xs font-mono font-bold text-[#66c0f4] mt-0.5">500 - 999 ELO</div>
-              <div className="text-[9px] text-[#c7d5e0]">Azul Electrico</div>
-            </div>
-            <div className="p-2.5 rounded-sm bg-purple-500/20 border border-purple-400 text-center shadow-md shadow-purple-500/30">
-              <div className="text-[10px] font-black text-purple-300">AMATISTA</div>
-              <div className="text-xs font-mono font-bold text-purple-300 mt-0.5">1,000 - 1,999</div>
-              <div className="text-[9px] text-purple-200">Neon Purpura</div>
-            </div>
-            <div className="p-2.5 rounded-sm bg-[#FF5500]/25 border border-[#FF5500] text-center shadow-lg shadow-[#FF5500]/30">
-              <div className="text-[10px] font-black text-[#ff8547]">FENIX</div>
-              <div className="text-xs font-mono font-bold text-[#FF5500] mt-0.5">2,000 - 4,999</div>
-              <div className="text-[9px] text-orange-200">Fuego Imperial</div>
-            </div>
-            <div className="p-2.5 rounded-sm bg-gradient-to-r from-yellow-400/30 via-[#FF5500]/30 to-[#66c0f4]/30 border border-yellow-300 text-center shadow-xl shadow-yellow-400/40">
-              <div className="text-[10px] font-black text-yellow-300">LEYENDA 5K+</div>
-              <div className="text-xs font-mono font-black text-white mt-0.5">5,000+ ELO</div>
-              <div className="text-[9px] text-yellow-200">Radiante Supremo</div>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-sm border border-[#2a475e] bg-[#1b2838]/70">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-[#171a21] text-[#8f98a0] text-xs uppercase border-b border-[#2a475e]">
-                  <th className="py-3.5 px-5">Posicion</th>
-                  <th className="py-3.5 px-5">Jugador</th>
-                  <th className="py-3.5 px-5">Rango & Brillo ELO</th>
-                  <th className="py-3.5 px-5">Partidas (6 Calibran)</th>
-                  <th className="py-3.5 px-5">Winrate</th>
-                  <th className="py-3.5 px-5 text-right">Premio de Temporada</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#2a475e]/40">
-                {leaderboard.map((player, index) => {
-                  const totalGames = player.wins + player.losses;
-                  const winrate = totalGames > 0 ? Math.round((player.wins / totalGames) * 100) : 0;
-                  const isMe = Boolean(loggedSteamId && player.steam_id === loggedSteamId);
-                  const tier = getEloTierStyle(player.elo, totalGames);
-
-                  return (
-                    <tr
-                      key={player.id}
-                      className={
-                        isMe
-                          ? "bg-gradient-to-r from-[#a4d007]/20 via-[#1b2838] to-transparent"
-                          : index === 0
-                          ? "bg-gradient-to-r from-[#FF5500]/15 to-transparent"
-                          : ""
-                      }
-                    >
-                      <td className={`py-4 px-5 font-black ${index === 0 ? "text-[#FF5500]" : index === 1 ? "text-[#c7d5e0]" : "text-[#8f98a0]"}`}>
-                        #{index + 1}
-                      </td>
-                      <td className="py-4 px-5 font-bold text-white">
-                        {player.nickname}{" "}
-                        <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-[#171a21] border border-[#2a475e] text-[#66c0f4]">
-                          {player.country}
-                        </span>
-                        {isMe && (
-                          <span className="ml-2 text-[10px] px-2 py-0.5 rounded-sm bg-[#a4d007] text-[#171a21] font-black uppercase">
-                            TU PERFIL
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-4 px-5">
-                        <div className="flex items-center gap-2.5">
-                          <span className={`font-mono text-sm font-black ${tier.textClass}`}>
-                            {totalGames < 6
-                              ? "SIN ELO"
-                              : `${player.elo.toLocaleString()} ELO`}
-                          </span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-sm font-black uppercase ${tier.badgeClass}`}>
-                            {tier.tierName}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-5 text-xs font-mono text-[#c7d5e0]">
-                        <span className="text-[#a4d007] font-bold">{player.wins}W</span> -{" "}
-                        <span className="text-red-400">{player.losses}L</span>{" "}
-                        <span className="text-[10px] text-[#8f98a0] ml-1">
-                          ({totalGames < 6 ? `Calibrando ${totalGames}/6` : `${totalGames} Jugadas`})
-                        </span>
-                      </td>
-                      <td className="py-4 px-5 text-[#a4d007] font-bold">
-                        {winrate}%
-                      </td>
-                      <td className={`py-4 px-5 text-right font-bold ${index === 0 ? "text-[#FF5500]" : "text-white"}`}>
-                        {player.season_prize}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        {/* COMPONENTE MODULAR 3: LEADERBOARD TOP ELO */}
+        <LeaderboardSection leaderboard={leaderboard} loggedSteamId={loggedSteamId} />
       </main>
 
-      {/* Pie de Pagina Corporativo */}
       <footer className="border-t border-[#2a475e]/60 bg-[#111318] py-8 text-center text-xs text-[#8f98a0]">
         <p className="font-semibold text-[#c7d5e0]">
           2026 AimVe Sports. Operado por SHOPYSOF., C.A. Todos los derechos reservados.
@@ -2015,7 +1514,6 @@ const resetVeto = () => {
         <p className="mt-1">Soporte y alianzas comerciales: contacto@aimvesports.com</p>
       </footer>
 
-      {/* MODAL INTERACTIVO DE ACCESO ANTICIPADO */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-[#1b2838] border border-[#66c0f4]/50 rounded-sm max-w-md w-full p-7 relative shadow-2xl">
@@ -2031,9 +1529,7 @@ const resetVeto = () => {
                 <div className="text-xs font-black text-[#FF5500] uppercase tracking-widest mb-1">
                   LISTA DE FUNDADORES | CS2 LATAM
                 </div>
-                <h3 className="text-2xl font-black text-white mb-2">
-                  Reserva tu Slot en AimVe
-                </h3>
+                <h3 className="text-2xl font-black text-white mb-2">Reserva tu Slot en AimVe</h3>
                 <p className="text-xs text-[#8f98a0] mb-5">
                   Registrate para recibir tu invitacion a la Beta Cerrada, insignia de Fundador y acceso a los sorteos de Skins de lanzamiento.
                 </p>
@@ -2102,9 +1598,7 @@ const resetVeto = () => {
                 <div className="w-12 h-12 rounded-full bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] flex items-center justify-center mx-auto mb-4 text-base font-black">
                   OK
                 </div>
-                <h4 className="text-xl font-black text-white mb-2">
-                  Solicitud Registrada!
-                </h4>
+                <h4 className="text-xl font-black text-white mb-2">Solicitud Registrada!</h4>
                 <p className="text-xs text-[#8f98a0] mb-6">
                   Has quedado anotado en la lista prioritaria de AimVe Sports. Te notificaremos apenas abramos los servidores de prueba.
                 </p>
