@@ -65,6 +65,20 @@ export async function POST(request: Request) {
         .map((p: any) => String(p.steam_id))
         .filter((id: string) => id.startsWith('bot_'));
 
+      // Buscar un puerto Premier 5v5 libre en Miami
+      const { data: freeServer } = await supabase
+        .from('game_servers')
+        .select('*')
+        .eq('server_type', 'premier_5v5')
+        .eq('status', 'free')
+        .order('port', { ascending: true })
+        .limit(1)
+        .single();
+
+      const assignedConnect = freeServer
+        ? `connect ${freeServer.ip}:${freeServer.port}`
+        : 'connect miami1.aimvesports.com:27025';
+
       const { data: matchData, error: matchErr } = await supabase
         .from('active_matches')
         .insert([{
@@ -75,7 +89,8 @@ export async function POST(request: Request) {
           status: 'ready_check',
           banned_maps: [],
           accepted_players: autoAcceptedBots,
-          turn_expires_at: expirationTime
+          turn_expires_at: expirationTime,
+          server_connect: assignedConnect
         }])
         .select()
         .single();

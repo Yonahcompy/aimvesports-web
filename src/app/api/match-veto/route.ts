@@ -104,6 +104,7 @@ export async function POST(request: Request) {
         await supabase.from("matchmaking_queue").upsert(activePlayersToRequeue, { onConflict: "steam_id" });
       }
 
+      await supabase.from("game_servers").update({ status: "free", current_match_id: null }).eq("current_match_id", match.id);
       return NextResponse.json({ ok: true, cancelled: true, requeued: activePlayersToRequeue.length });
     }
 
@@ -136,6 +137,7 @@ export async function POST(request: Request) {
         .single();
 
       if (finErr) throw finErr;
+      await supabase.from("game_servers").update({ status: "free", current_match_id: null }).eq("current_match_id", match.id);
       return NextResponse.json({ ok: true, match: finishedMatch });
     }
 

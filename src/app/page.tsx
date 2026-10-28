@@ -766,6 +766,30 @@ export default function Home() {
   // Veto Seguro: La orden viaja directamente al Juez del Backend (/api/match-veto)
   const isAdmin = ["76561199757155122", "76561199724566305"].includes(String(loggedSteamId));
 
+  // Alerta Sonora Competitiva cuando se encuentra partida (10/10 -> Ready Check)
+  useEffect(() => {
+    if (activeMatch?.status === "ready_check") {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.14);
+            gain.gain.setValueAtTime(0.22, ctx.currentTime + idx * 0.14);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.14 + 0.35);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(ctx.currentTime + idx * 0.14);
+            osc.stop(ctx.currentTime + idx * 0.14 + 0.35);
+          });
+        }
+      } catch {}
+    }
+  }, [activeMatch?.id, activeMatch?.status]);
+
   // Confirmar asistencia en el Ready Check (20 segundos)
   const handleAcceptMatch = async () => {
     if (!activeMatch?.id || !loggedSteamId) return;
