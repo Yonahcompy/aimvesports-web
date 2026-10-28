@@ -1,28 +1,113 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
+const ALL_MAPS = [
+  "de_mirage",
+  "de_inferno",
+  "de_dust2",
+  "de_nuke",
+  "de_ancient",
+  "de_anubis",
+  "de_vertigo"
+];
+
 export async function POST(request: Request) {
   try {
-    const { match_id, steam_id, map_id } = await request.json();
+    const body = await request.json();
+    const { match_id, steam_id, map_id, action, is_timeout } = body;
 
-    if (!match_id || !steam_id || !map_id) {
-      return NextResponse.json({ error: "Faltan datos requeridos" }, { status: 400 });
+    if (!match_id) {
+      return NextResponse.json({ error: "Falta match_id" }, { status: 400 });
     }
 
-    // 1. Leer el estado de la partida desde la base de datos (La Fuente de la Verdad)
     const { data: match, error: fetchErr } = await supabase
       .from("active_matches")
       .select("*")
       .eq("id", match_id)
       .single();
 
-    if (fetchErr || !match) return NextResponse.json({ error: "Partida no encontrada" }, { status: 404 });
-    if (match.status !== "veto") return NextResponse.json({ error: "El veto ya no está activo" }, { status: 400 });
+    if (fetchErr || !match) {
+      return NextResponse.json({ error: "Partida no encontrada" }, { status: 404 });
+    }
 
-    const bannedMaps = match.banned_maps || [];
-    if (bannedMaps.includes(map_id)) return NextResponse.json({ error: "Mapa ya vetado" }, { status: 400 });
+    // A) Cerrar partida definitivamente y liberar a los 10 jugadores
+    if (action === "finish") {
+      const { data: finishedMatch, error: finErr } = await supabase
+        .from("active_matches")
+        .update({ status: "finished", turn_expires_at: null })
+        .eq("id", match.id)
+        .select()
+        .single();
 
-    // 2. Determinar el turno matematicamente (Pares = Alpha, Impares = Omega)
+      if (finErr) throw finErr;
+      return NextResponse.json({ ok: true, match: finishedMatch });
+    }
+
+    // B) Reiniciar el Veto desde el servidor
+    if (action === "reset") {
+      const nextExpiration = new Date(Date.now() + 16000).toISOString();
+      const { data: resetMatch, error: rstErr } = await supabase
+        .from("active_matches")
+        .update({
+          banned_maps: [],
+          status: "veto",
+          turn_expires_at: nextExpiration
+        })
+        .eq("id", match.id)
+        .select()
+        .single();
+
+      if (rstErr) throw rstErr;
+      return NextResponse.json({ ok: true, match: resetMatch });
+    }
+
+    if (match.status !== "veto") {
+      return NextResponse.json({ error: "El veto ya no está activo" }, { status: 400 });
+    }
+
+    const bannedMaps: string[] = match.banned_maps || [];
+
+    // C) Auto-Veto por Timeout (Funciona aunque el capitan en turno no tenga luz/internet)
+    if (is_timeout) {
+      const exp = match.turn_expires_at ? new Date(match.turn_expires_at).getTime() : 0;
+      if (Date.now() < exp - 500) {
+        return NextResponse.json({ ok: false, reason: "El turno aun no ha expirado en el servidor" });
+      }
+
+      const available = ALL_MAPS.filter((m) => !bannedMaps.includes(m));
+      if (available.length <= 1) {
+        return NextResponse.json({ ok: false, reason: "Ya existe un mapa definitivo" });
+      }
+
+      const randomMap = available[Math.floor(Math.random() * available.length)];
+      const newBans = [...bannedMaps, randomMap];
+      const newStatus = newBans.length >= 6 ? "live" : "veto";
+      const nextExpiration = newStatus === "live" ? null : new Date(Date.now() + 16000).toISOString();
+
+      const { data: updatedMatch, error: updErr } = await supabase
+        .from("active_matches")
+        .update({
+          banned_maps: newBans,
+          turn_expires_at: nextExpiration,
+          status: newStatus
+        })
+        .eq("id", match.id)
+        .select()
+        .single();
+
+      if (updErr) throw updErr;
+      return NextResponse.json({ ok: true, auto_banned: randomMap, match: updatedMatch });
+    }
+
+    // D) Veto Manual del Capitan en Turno
+    if (!map_id || !steam_id) {
+      return NextResponse.json({ error: "Faltan datos para vetar" }, { status: 400 });
+    }
+
+    if (bannedMaps.includes(map_id)) {
+      return NextResponse.json({ error: "Mapa ya vetado" }, { status: 400 });
+    }
+
     const isAlphaTurn = bannedMaps.length % 2 === 0;
     const currentCaptain = isAlphaTurn ? match.captain_alpha_steam_id : match.captain_omega_steam_id;
 
@@ -30,14 +115,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No es tu turno o no eres el capitan" }, { status: 403 });
     }
 
-    // 3. Ejecutar baneo, cambiar a 'live' si es el ultimo mapa, o sumar 15s al Reloj Maestro
     const newBans = [...bannedMaps, map_id];
     const newStatus = newBans.length >= 6 ? "live" : "veto";
-    const nextExpiration = new Date(Date.now() + 16000).toISOString(); // 15s de turno + 1s extra de margen de red
+    const nextExpiration = newStatus === "live" ? null : new Date(Date.now() + 16000).toISOString();
 
     const { data: updatedMatch, error: updateErr } = await supabase
       .from("active_matches")
-      .update({ 
+      .update({
         banned_maps: newBans,
         turn_expires_at: nextExpiration,
         status: newStatus

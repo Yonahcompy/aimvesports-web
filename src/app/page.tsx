@@ -298,21 +298,22 @@ export default function Home() {
     return () => { supabase.removeChannel(sub); };
   }, [activeMatch?.id]);
 
-    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s)
+    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s en veto y live)
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (activeMatch?.id && activeMatch?.status === 'veto') {
+    if (activeMatch?.id && (activeMatch?.status === 'veto' || activeMatch?.status === 'live')) {
       interval = setInterval(async () => {
         const { data } = await supabase.from('active_matches').select('*').eq('id', activeMatch.id).single();
         if (data) {
+          if (data.status === 'finished') {
+            setActiveMatch(null);
+            setBannedMaps([]);
+            setQueueSearching(false);
+            return;
+          }
           setActiveMatch(data);
           if (data.banned_maps) {
-            setBannedMaps(prev => {
-              if (prev.length !== data.banned_maps.length) {
-                return data.banned_maps;
-              }
-              return prev;
-            });
+            setBannedMaps(prev => prev.length !== data.banned_maps.length ? data.banned_maps : prev);
           }
         }
       }, 1500);
@@ -716,7 +717,7 @@ export default function Home() {
     const isAlphaTurn = bannedMaps.length % 2 === 0;
   const currentTurn = isAlphaTurn ? "EQUIPO ALPHA" : "EQUIPO OMEGA";
   const finalMap = bannedMaps.length >= 6 ? CS2_MAPS.find((m: any) => !bannedMaps.includes(m.id)) : null;
-    // Reloj Maestro (Lee la hora estricta de la nube y delega el veto al servidor)
+    // Reloj Maestro (Lee la hora estricta de la nube y delega el auto-veto al servidor aunque el capitan se desconecte)
   useEffect(() => {
     if (!activeMatch || activeMatch.status !== 'veto') return;
     
@@ -726,23 +727,12 @@ export default function Home() {
         const remaining = Math.max(0, Math.floor((exp - Date.now()) / 1000));
         setTimeLeft(remaining);
         
-        // Auto-vetar si el tiempo se agota (solo dispara el capitan en turno al servidor)
         if (remaining === 0) {
-          const currentBans = activeMatch.banned_maps || [];
-          const isAlpha = currentBans.length % 2 === 0;
-          const currentCaptain = isAlpha ? activeMatch.captain_alpha_steam_id : activeMatch.captain_omega_steam_id;
-          
-          if (String(loggedSteamId) === String(currentCaptain)) {
-            const available = CS2_MAPS.filter((m) => !currentBans.includes(m.id));
-            if (available.length > 1) {
-              const randomMap = available[Math.floor(Math.random() * available.length)];
-              fetch("/api/match-veto", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ match_id: activeMatch.id, steam_id: loggedSteamId, map_id: randomMap.id })
-              }).catch(()=>{});
-            }
-          }
+          fetch("/api/match-veto", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ match_id: activeMatch.id, is_timeout: true })
+          }).catch(() => {});
         }
       }
     }, 1000);
@@ -765,6 +755,7 @@ export default function Home() {
     } catch {}
   };
 const resetVeto = () => {
+    if (activeMatch?.id) { fetch('/api/match-veto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ match_id: activeMatch.id, action: 'reset' }) }).catch(()=>{}); }
     setBannedMaps([]);
     setTimeLeft(15);
   };
@@ -790,6 +781,7 @@ const resetVeto = () => {
 
   // Finalizar partida aplicando Calibracion (6 partidas -> 25-100 ELO), Bono Mano Caliente y Escudo de ELO
   const handleSimulateFinish = async () => {
+    if (activeMatch?.id) { fetch('/api/match-veto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ match_id: activeMatch.id, action: 'finish' }) }).catch(()=>{}); setActiveMatch(null); setBannedMaps([]); }
     if (!finalMap) return;
     setSavingMatch(true);
 
