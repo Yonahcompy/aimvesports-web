@@ -740,6 +740,8 @@ export default function Home() {
   }, [activeMatch, loggedSteamId]);
 
   // Veto Seguro: La orden viaja directamente al Juez del Backend (/api/match-veto)
+  const isAdmin = ["76561199757155122", "76561199724566305"].includes(String(loggedSteamId));
+
   const handleBanMap = async (mapId: string) => {
     if (finalMap || bannedMaps.includes(mapId) || !activeMatch) return;
     try {
@@ -755,6 +757,7 @@ export default function Home() {
     } catch {}
   };
 const resetVeto = () => {
+    if (!isAdmin) return;
     if (activeMatch?.id) { fetch('/api/match-veto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ match_id: activeMatch.id, action: 'reset' }) }).catch(()=>{}); }
     setBannedMaps([]);
     setTimeLeft(15);
@@ -781,6 +784,7 @@ const resetVeto = () => {
 
   // Finalizar partida aplicando Calibracion (6 partidas -> 25-100 ELO), Bono Mano Caliente y Escudo de ELO
   const handleSimulateFinish = async () => {
+    if (!isAdmin) return;
     if (activeMatch?.id) { fetch('/api/match-veto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ match_id: activeMatch.id, action: 'finish' }) }).catch(()=>{}); setActiveMatch(null); setBannedMaps([]); }
     if (!finalMap) return;
     setSavingMatch(true);
@@ -1495,7 +1499,7 @@ const resetVeto = () => {
                       <div className="text-xs font-black text-[#a4d007] uppercase tracking-wider flex items-center gap-2">
                         <span>MAPA DEFINITIVO: {finalMap.name.toUpperCase()} ({finalMap.id})</span>
                         <a
-                          href={`/api/match-config?map=${finalMap.id}`}
+                          href={`/api/match-config?match_id=${activeMatch?.id || ""}`}
                           target="_blank"
                           rel="noreferrer"
                           className="text-[10px] px-2 py-0.5 rounded-sm bg-[#1b2838] border border-[#66c0f4]/50 text-[#66c0f4] hover:bg-[#66c0f4] hover:text-[#171a21] transition"
@@ -1505,13 +1509,13 @@ const resetVeto = () => {
                       </div>
                       <div className="flex flex-wrap items-center gap-2 mt-1.5">
                         <code className="text-[11px] px-2 py-0.5 rounded-sm bg-[#111318] border border-[#2a475e] text-[#c7d5e0] font-mono">
-                          .load https://www.aimvesports.com/api/match-config?map={finalMap.id}
+                          .load https://www.aimvesports.com/api/match-config?match_id=${activeMatch?.id || ""}
                         </code>
                         <button
                           type="button"
                           onClick={() => {
                             navigator.clipboard.writeText(
-                              `.load https://www.aimvesports.com/api/match-config?map=${finalMap.id}`
+                              `.load https://www.aimvesports.com/api/match-config?match_id=${activeMatch?.id || ""}`
                             );
                           }}
                           className="text-[10px] px-2 py-0.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-bold transition cursor-pointer"
