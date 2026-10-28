@@ -51,21 +51,27 @@ export function verifyRequestIdentity(
 ): { steamId: string | null; error?: string } {
   const claimed = claimedSteamId ? String(claimedSteamId).trim() : null;
 
+  // Permitir bots de prueba (bot_1 .. bot_9)
   if (claimed && claimed.startsWith("bot_")) {
     return { steamId: claimed };
   }
 
   const verifiedIds = readVerifiedSteamIdsFromRequest(request);
 
-  if (verifiedIds.length > 0 && claimed) {
-    if (verifiedIds.includes(claimed)) {
-      return { steamId: claimed };
+  if (verifiedIds.length > 0) {
+    if (claimed) {
+      if (verifiedIds.includes(claimed)) {
+        return { steamId: claimed };
+      }
+      return {
+        steamId: null,
+        error: "Alerta de Seguridad: Intento de suplantacion de SteamID bloqueado (Spoofing F12).",
+      };
     }
-    // Si tiene dos ventanas abiertas en el mismo navegador, permitir las cuentas verificadas o hacer fallback seguro
-    return { steamId: claimed };
+    return { steamId: verifiedIds[0] };
   }
 
-  return { steamId: claimed || verifiedIds[0] || null };
+  return { steamId: claimed };
 }
 
 export function attachSessionCookie(

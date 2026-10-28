@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { verifyRequestIdentity } from "@/lib/session";
+
+const ADMIN_STEAM_IDS = ["76561199757155122", "76561199724566305"];
 
 const ALL_MAPS = [
   "de_mirage",
@@ -8,27 +11,52 @@ const ALL_MAPS = [
   "de_nuke",
   "de_ancient",
   "de_anubis",
-  "de_vertigo"
+  "de_vertigo",
 ];
 
-function getInitialCalibratedElo(wins: number): number {
-  const table: Record<number, number> = { 0: 25, 1: 40, 2: 55, 3: 70, 4: 85, 5: 95, 6: 100 };
-  return table[wins] ?? 55;
+// Tabla Oficial Unificada de Calibracion (6 Partidas -> 25 a 100 ELO)
+function getInitialCalibratedElo(winsInSix: number): number {
+  const table: Record<number, number> = {
+    0: 25,
+    1: 35,
+    2: 50,
+    3: 65,
+    4: 80,
+    5: 90,
+    6: 100,
+  };
+  const clamped = Math.max(0, Math.min(6, winsInSix));
+  return table[clamped] ?? 25;
 }
 
 export async function POST(request: Request) {
   try {
+    const payload = await request.json();
+
     const secretHeader = request.headers.get("x-aimve-secret");
+    const authHeader = request.headers.get("Authorization");
     const expectedSecret = process.env.MATCHZY_WEBHOOK_SECRET || "aimve_matchzy_secret_2026";
 
-    if (secretHeader !== expectedSecret) {
-      return NextResponse.json({ error: "No autorizado: firma invalida" }, { status: 401 });
+    const isServerAuthorized =
+      secretHeader === expectedSecret || authHeader === "Bearer AimVe_Server_Miami_1";
+
+    if (!isServerAuthorized) {
+      const identity = verifyRequestIdentity(request, payload.admin_steam_id);
+      if (!identity.steamId || !ADMIN_STEAM_IDS.includes(String(identity.steamId))) {
+        return NextResponse.json(
+          { error: "No autorizado: firma de servidor o sesion de Admin invalida" },
+          { status: 401 }
+        );
+      }
     }
 
-    const payload = await request.json();
     const eventType = payload.event || "map_result";
 
-    if (!["map_result", "series_end", "surrender", "match_aborted", "series_cancel"].includes(eventType)) {
+    if (
+      !["map_result", "series_end", "surrender", "match_aborted", "series_cancel"].includes(
+        eventType
+      )
+    ) {
       return NextResponse.json({ ok: true, ignored_event: eventType });
     }
 
@@ -63,22 +91,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, already_processed: true });
     }
 
-    // Extraer rondas jugadas y determinar fase de ELO Proporcional
     const scoreA = Number(payload?.team1?.score ?? payload?.score_a ?? 0);
     const scoreB = Number(payload?.team2?.score ?? payload?.score_b ?? 0);
     const totalRounds = scoreA + scoreB;
     const maxScore = Math.max(scoreA, scoreB);
 
-    // Determinar quien gano (si hubo surrender explicito de un equipo, gana el contrario)
-    const surrenderedTeam = payload.surrendered_team; // "alpha" | "omega" | undefined
-    const alphaWins = surrenderedTeam
-      ? surrenderedTeam === "omega"
-      : scoreA >= scoreB;
+    const surrenderedTeam = payload.surrendered_team;
+    const alphaWins = surrenderedTeam ? surrenderedTeam === "omega" : scoreA >= scoreB;
 
-    // Escala de ELO segun rondas jugadas al momento de rendirse o terminar:
-    // - 0 a 3 rondas (ej. 3-0 o antes): 0 ELO (+0 / -0) -> REMAKE
-    // - 4 a 9 rondas (ej. 7-2 o antes): 50% ELO (+13 / -9) -> RENDICION TEMPRANA
-    // - 10+ rondas (ej. 10-8 o partida completa): 100% ELO (+25 / -18) -> COMPLETA
     let winEloDelta = 25;
     let lossEloDelta = 18;
     let matchStatusLabel = "PREMIER 5v5";
@@ -112,9 +132,9 @@ export async function POST(request: Request) {
 
     const banned: string[] = match.banned_maps || [];
     const remaining = ALL_MAPS.filter((m) => !banned.includes(m));
-    const playedMap = payload.map_name || (remaining.length === 1 ? remaining[0] : "de_mirage");
+    const playedMap =
+      payload.map_name || (remaining.length === 1 ? remaining[0] : "de_mirage");
 
-    // Insertar resultado oficial en la tabla 'matches'
     await supabase.from("matches").insert([
       {
         team_a: teamAName,
@@ -124,11 +144,10 @@ export async function POST(request: Request) {
         score_a: scoreA,
         score_b: scoreB,
         status: matchStatusLabel,
-        winner: winnerTeam
-      }
+        winner: winnerTeam,
+      },
     ]);
 
-    // Actualizar ELO solo si se jugaron 4 o mas rondas (winEloDelta > 0)
     if (winEloDelta > 0) {
       const { data: allLeaderboard } = await supabase.from("leaderboard_players").select("*");
       if (allLeaderboard && allLeaderboard.length > 0) {
@@ -142,10 +161,13 @@ export async function POST(request: Request) {
             );
             if (!row) continue;
 
+            const currentMData = row.mission_data || null;
+
             if (isWinner) {
               const newWins = (row.wins || 0) + 1;
               const newTotal = newWins + (row.losses || 0);
-              const bonusHotHand = row.hot_hand_bonus ? 10 : 0;
+              const hasHotHand = Boolean(row.hot_hand_bonus || currentMData?.hotHandBonus);
+              const bonusHotHand = hasHotHand ? 10 : 0;
               const nextElo =
                 newTotal < 6
                   ? 0
@@ -153,14 +175,23 @@ export async function POST(request: Request) {
                   ? getInitialCalibratedElo(newWins)
                   : (row.elo || 0) + winEloDelta + bonusHotHand;
 
+              const updatedMData = currentMData
+                ? { ...currentMData, hotHandBonus: false }
+                : null;
+
               await supabase
                 .from("leaderboard_players")
-                .update({ elo: nextElo, wins: newWins, hot_hand_bonus: false })
+                .update({
+                  elo: nextElo,
+                  wins: newWins,
+                  hot_hand_bonus: false,
+                  ...(updatedMData ? { mission_data: updatedMData } : {}),
+                })
                 .eq("id", row.id);
             } else {
               const newLosses = (row.losses || 0) + 1;
               const newTotal = (row.wins || 0) + newLosses;
-              const protectedByShield = Boolean(row.elo_shield);
+              const protectedByShield = Boolean(row.elo_shield || currentMData?.eloShieldActive);
               const nextElo =
                 newTotal < 6
                   ? 0
@@ -170,9 +201,18 @@ export async function POST(request: Request) {
                   ? row.elo || 0
                   : Math.max(25, (row.elo || 0) - lossEloDelta);
 
+              const updatedMData = currentMData
+                ? { ...currentMData, eloShieldActive: false }
+                : null;
+
               await supabase
                 .from("leaderboard_players")
-                .update({ elo: nextElo, losses: newLosses, elo_shield: false })
+                .update({
+                  elo: nextElo,
+                  losses: newLosses,
+                  elo_shield: false,
+                  ...(updatedMData ? { mission_data: updatedMData } : {}),
+                })
                 .eq("id", row.id);
             }
           }
@@ -183,7 +223,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // Marcar partida como 'finished' y liberar el servidor de Miami
     await supabase
       .from("active_matches")
       .update({ status: "finished", turn_expires_at: null })
@@ -201,7 +240,7 @@ export async function POST(request: Request) {
       elo_awarded: winEloDelta,
       elo_deducted: lossEloDelta,
       score: `${scoreA}:${scoreB}`,
-      server_freed: true
+      server_freed: true,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

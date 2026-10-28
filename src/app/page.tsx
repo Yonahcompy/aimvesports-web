@@ -696,7 +696,7 @@ export default function Home() {
     fetch("/api/match-veto", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ match_id: activeMatch.id, action: "reset" }),
+      body: JSON.stringify({ match_id: activeMatch.id, steam_id: loggedSteamId, action: "reset" }),
     }).catch(() => {});
     setBannedMaps([]);
     setTimeLeft(15);
@@ -756,107 +756,30 @@ export default function Home() {
     setSavingMatch(true);
 
     try {
-      const lockRes = await fetch("/api/match-veto", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ match_id: activeMatch.id, action: "lock_finish" }),
-      });
-      const lockData = await lockRes.json();
-
-      if (!lockData?.ok) {
-        setActiveMatch(null);
-        setBannedMaps([]);
-        await fetchMatches();
-        await fetchLeaderboard();
-        setSavingMatch(false);
-        return;
-      }
-
-      const omegaCapName = activeMatch?.team_omega?.[0]?.nickname || "Omega";
       const roundsLoser = Math.floor(Math.random() * 10) + 2;
       const alphaWins = Math.random() > 0.5;
-      const winnerTeam = alphaWins ? `Equipo ${captainAlphaName}` : `Equipo ${omegaCapName}`;
 
-      await supabase.from("matches").insert([
-        {
-          team_a: `Equipo ${captainAlphaName}`,
-          team_b: `Equipo ${omegaCapName}`,
-          selected_map: finalMap.id,
-          banned_maps: bannedMaps,
-          score_a: alphaWins ? 13 : roundsLoser,
-          score_b: alphaWins ? roundsLoser : 13,
-          status: "PREMIER 5v5",
-          winner: `${winnerTeam} (+25 ELO)`,
-        },
-      ]);
-
-      const winnerRow = alphaWins
-        ? currentPlayerProfile
-        : leaderboard.find((p) => p.nickname === omegaCapName);
-      const loserRow = alphaWins
-        ? leaderboard.find((p) => p.nickname === omegaCapName)
-        : currentPlayerProfile;
-
-      if (winnerRow) {
-        const newWins = winnerRow.wins + 1;
-        const newTotal = newWins + winnerRow.losses;
-        const stompBonus = roundsLoser <= 4 ? 4 : 0;
-        const warmupBonus = alphaWins && hotHandBonus ? 10 : 0;
-
-        const nextElo =
-          newTotal < 6
-            ? 0
-            : newTotal === 6
-            ? getInitialCalibratedElo(newWins)
-            : winnerRow.elo + 25 + stompBonus + warmupBonus;
-
-        if (alphaWins && hotHandBonus) setHotHandBonus(false);
-
-        await supabase
-          .from("leaderboard_players")
-          .update({ elo: nextElo, wins: newWins })
-          .eq("id", winnerRow.id);
-      }
-
-      if (loserRow) {
-        const newLosses = loserRow.losses + 1;
-        const newTotal = loserRow.wins + newLosses;
-        const isProtectedByShield = !alphaWins && eloShieldActive;
-
-        const nextElo =
-          newTotal < 6
-            ? 0
-            : newTotal === 6
-            ? getInitialCalibratedElo(loserRow.wins)
-            : isProtectedByShield
-            ? loserRow.elo
-            : Math.max(25, loserRow.elo - 18);
-
-        if (isProtectedByShield) {
-          setEloShieldActive(false);
-          setMissionBanner("Tu Escudo Protector de Retakes absorbio la derrota: perdiste 0 ELO!");
-        }
-
-        await supabase
-          .from("leaderboard_players")
-          .update({ elo: nextElo, losses: newLosses })
-          .eq("id", loserRow.id);
-      }
-
-      if (loggedSteamId) {
-        await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
-      }
-
-      await fetch("/api/match-veto", {
+      const res = await fetch("/api/matchzy-webhook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ match_id: activeMatch.id, action: "finish" }),
+        body: JSON.stringify({
+          event: "series_end",
+          matchid: activeMatch.id,
+          map_name: finalMap.id,
+          admin_steam_id: loggedSteamId,
+          team1: { score: alphaWins ? 13 : roundsLoser },
+          team2: { score: alphaWins ? roundsLoser : 13 },
+        }),
       });
 
-      await fetchMatches();
-      await fetchLeaderboard();
-      setActiveMatch(null);
-      setBannedMaps([]);
+      const data = await res.json();
+      if (data?.ok) {
+        await fetchMatches();
+        await fetchLeaderboard();
+        await fetchCola();
+        setActiveMatch(null);
+        setBannedMaps([]);
+      }
     } finally {
       setSavingMatch(false);
     }
