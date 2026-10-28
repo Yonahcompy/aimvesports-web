@@ -1,26 +1,20 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase";
 
-// GET: Obtener lista actual limpiando inactivos
 export async function GET() {
   try {
-    const limiteTiempo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-    await supabase.from('matchmaking_queue').delete().lt('joined_at', limiteTiempo);
-
     const { data, error } = await supabase
-      .from('matchmaking_queue')
-      .select('*')
-      .order('joined_at', { ascending: true })
-      .limit(10);
+      .from("matchmaking_queue")
+      .select("*")
+      .order("joined_at", { ascending: true });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ queue: data || [], count: data ? data.length : 0 });
+    if (error) throw error;
+    return NextResponse.json({ queue: data || [] });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-// POST: Entrar a la cola y formar partida automatica al llegar a 10
 export async function POST(request: Request) {
   try {
     const url = new URL(request.url);
@@ -29,93 +23,173 @@ export async function POST(request: Request) {
       await supabase.from("matchmaking_queue").delete().eq("steam_id", leaveSteamId);
       return NextResponse.json({ ok: true, left: true });
     }
-    const { steam_id, nickname, elo, country } = await request.json();
+
+    const body = await request.json();
+    const { steam_id, nickname, elo, country } = body;
 
     if (!steam_id || !nickname) {
-      return NextResponse.json({ error: 'Faltan datos de Steam' }, { status: 400 });
+      return NextResponse.json({ error: "Faltan datos del jugador" }, { status: 400 });
     }
 
-    // 1. Registrar jugador
-    await supabase.from('matchmaking_queue').upsert(
-      [{ steam_id, nickname, elo: Number(elo || 0), country: country || 'VE', joined_at: new Date().toISOString() }],
-      { onConflict: 'steam_id' }
-    );
+    // Auto-registrar jugador real en leaderboard_players si es nuevo
+    if (!String(steam_id).startsWith("bot_")) {
+      const { data: existingPlayer } = await supabase
+        .from("leaderboard_players")
+        .select("id, steam_id")
+        .or(`steam_id.eq.${steam_id},nickname.eq.${nickname}`)
+        .limit(1)
+        .maybeSingle();
 
-    // 2. Verificar si llegamos a 10 jugadores
-    const { data: queueList } = await supabase
-      .from('matchmaking_queue')
-      .select('*')
-      .order('joined_at', { ascending: true })
-      .limit(10);
+      if (!existingPlayer) {
+        await supabase.from("leaderboard_players").insert([{
+          steam_id: String(steam_id),
+          nickname: nickname || "Jugador",
+          country: country || "VE",
+          elo: 0,
+          wins: 0,
+          losses: 0
+        }]);
+      } else if (!existingPlayer.steam_id) {
+        await supabase.from("leaderboard_players").update({ steam_id: String(steam_id) }).eq("id", existingPlayer.id);
+      }
+    }
+
+    // 1. Insertar o actualizar jugador en la cola
+    const { error: upsertErr } = await supabase
+      .from("matchmaking_queue")
+      .upsert(
+        [{ steam_id: String(steam_id), nickname, elo: Number(elo) || 0, country: country || "VE" }],
+        { onConflict: "steam_id" }
+      );
+
+    if (upsertErr) throw upsertErr;
+
+    // 2. Consultar si ya hay 10 jugadores esperando
+    const { data: queueList, error: qErr } = await supabase
+      .from("matchmaking_queue")
+      .select("*")
+      .order("joined_at", { ascending: true });
+
+    if (qErr) throw qErr;
 
     if (queueList && queueList.length >= 10) {
-      // 3. Ordenar por ELO (mayor a menor)
-      const sortedPlayers = [...queueList].sort((a, b) => b.elo - a.elo);
-      
-      // 4. Reparticion justa (Snake Draft)
-      const team_alpha = [sortedPlayers[0], sortedPlayers[3], sortedPlayers[4], sortedPlayers[7], sortedPlayers[8]];
-      const team_omega = [sortedPlayers[1], sortedPlayers[2], sortedPlayers[5], sortedPlayers[6], sortedPlayers[9]];
+      // A. Verificar y reservar atomicamente un servidor Premier 5v5 libre en Miami
+      const { data: candidateServer } = await supabase
+        .from("game_servers")
+        .select("*")
+        .eq("server_type", "premier_5v5")
+        .eq("status", "free")
+        .order("port", { ascending: true })
+        .limit(1)
+        .maybeSingle();
 
-      const captain_alpha_steam_id = team_alpha[0].steam_id;
-      const captain_omega_steam_id = team_omega[0].steam_id;
+      if (!candidateServer) {
+        // Si todos los puertos estan ocupados, mantener en cola esperando el primer servidor libre
+        return NextResponse.json({
+          status: "waiting_server",
+          message: "Todos los servidores de Miami estan en partida activa. Entraras apenas se libere un puerto.",
+          queue: queueList
+        });
+      }
 
-      // 5. Crear la partida oficial en active_matches
-      const expirationTime = new Date(Date.now() + 21000).toISOString(); // 20s para Aceptar Partida + 1s de margen
+      const { data: lockedServer } = await supabase
+        .from("game_servers")
+        .update({ status: "busy" })
+        .eq("id", candidateServer.id)
+        .eq("status", "free")
+        .select()
+        .maybeSingle();
+
+      if (!lockedServer) {
+        return NextResponse.json({ status: "queued", queue: queueList });
+      }
+
+      // B. Extraer atomicamente a los primeros 10 jugadores de la cola (evita partidas duplicadas)
+      const selectedTen = queueList.slice(0, 10);
+      const idsToRemove = selectedTen.map((p: any) => String(p.steam_id));
+
+      const { data: poppedPlayers, error: delErr } = await supabase
+        .from("matchmaking_queue")
+        .delete()
+        .in("steam_id", idsToRemove)
+        .select();
+
+      if (delErr || !poppedPlayers || poppedPlayers.length < 10) {
+        // Si otra peticion simultanea ya tomo a estos jugadores, liberar el servidor y salir
+        await supabase.from("game_servers").update({ status: "free", current_match_id: null }).eq("id", lockedServer.id);
+        return NextResponse.json({ status: "queued", queue: queueList });
+      }
+
+      // C. Ordenar por ELO (Mayor a Menor) y armar Snake Draft (1-4-5-8-9 vs 2-3-6-7-10)
+      const sorted = [...poppedPlayers].sort((a: any, b: any) => (Number(b.elo) || 0) - (Number(a.elo) || 0));
+      const alphaIndices = [0, 3, 4, 7, 8];
+      const omegaIndices = [1, 2, 5, 6, 9];
+
+      const team_alpha = alphaIndices.map((i) => sorted[i]);
+      const team_omega = omegaIndices.map((i) => sorted[i]);
+
+      const captain_alpha_steam_id = String(team_alpha[0].steam_id);
+      const captain_omega_steam_id = String(team_omega[0].steam_id);
+
+      const expirationTime = new Date(Date.now() + 21000).toISOString();
       const autoAcceptedBots = [...team_alpha, ...team_omega]
         .map((p: any) => String(p.steam_id))
-        .filter((id: string) => id.startsWith('bot_'));
+        .filter((id: string) => id.startsWith("bot_"));
 
-      // Buscar un puerto Premier 5v5 libre en Miami
-      const { data: freeServer } = await supabase
-        .from('game_servers')
-        .select('*')
-        .eq('server_type', 'premier_5v5')
-        .eq('status', 'free')
-        .order('port', { ascending: true })
-        .limit(1)
-        .single();
-
-      const assignedConnect = freeServer
-        ? `connect ${freeServer.ip}:${freeServer.port}`
-        : 'connect miami1.aimvesports.com:27025';
+      const assignedConnect = `connect ${lockedServer.ip}:${lockedServer.port}`;
+      const initialChat = [
+        {
+          id: Date.now(),
+          sender: "SISTEMA",
+          text: `Sala Premier #${lockedServer.port} asignada en Miami. Confirmen asistencia para iniciar el Veto.`,
+          time: "Ahora",
+          isSystem: true
+        }
+      ];
 
       const { data: matchData, error: matchErr } = await supabase
-        .from('active_matches')
+        .from("active_matches")
         .insert([{
           team_alpha,
           team_omega,
           captain_alpha_steam_id,
           captain_omega_steam_id,
-          status: 'ready_check',
+          status: "ready_check",
           banned_maps: [],
           accepted_players: autoAcceptedBots,
           turn_expires_at: expirationTime,
-          server_connect: assignedConnect
+          server_connect: assignedConnect,
+          chat_messages: initialChat
         }])
         .select()
         .single();
 
-      if (!matchErr && matchData) {
-        // 6. Limpiar la cola vaciando a los 10 jugadores emparejados
-        const steamIds = sortedPlayers.map(p => p.steam_id);
-        await supabase.from('matchmaking_queue').delete().in('steam_id', steamIds);
-        
-        return NextResponse.json({ ok: true, match_created: true, match: matchData, queue: queueList, count: 10 });
+      if (matchErr || !matchData) {
+        await supabase.from("game_servers").update({ status: "free", current_match_id: null }).eq("id", lockedServer.id);
+        throw matchErr;
       }
+
+      await supabase
+        .from("game_servers")
+        .update({ status: "busy", current_match_id: matchData.id })
+        .eq("id", lockedServer.id);
+
+      return NextResponse.json({ status: "matched", match: matchData });
     }
 
-    return NextResponse.json({ ok: true, queue: queueList || [], count: queueList ? queueList.length : 0 });
+    return NextResponse.json({ status: "queued", queue: queueList });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-// DELETE: Salir de la cola
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const steam_id = searchParams.get('steam_id');
-    if (steam_id) await supabase.from('matchmaking_queue').delete().eq('steam_id', steam_id);
+    const steam_id = searchParams.get("steam_id");
+    if (steam_id) {
+      await supabase.from("matchmaking_queue").delete().eq("steam_id", steam_id);
+    }
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

@@ -30,6 +30,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Partida no encontrada" }, { status: 404 });
     }
 
+    // 0) Enviar mensaje en vivo al Chat del Lobby
+    if (action === "chat") {
+      const { sender, text, team } = body;
+      if (!text || ! String(text).trim()) {
+        return NextResponse.json({ error: "Mensaje vacio" }, { status: 400 });
+      }
+      const currentChat = Array.isArray(match.chat_messages) ? match.chat_messages : [];
+      const newMsg = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        sender: sender || "Jugador",
+        team: team || "alpha",
+        text: String(text).trim().slice(0, 180),
+        time: new Date().toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" })
+      };
+      const updatedChat = [...currentChat.slice(-29), newMsg];
+
+      const { data: updatedMatch, error: chatErr } = await supabase
+        .from("active_matches")
+        .update({ chat_messages: updatedChat })
+        .eq("id", match.id)
+        .select()
+        .single();
+
+      if (chatErr) throw chatErr;
+      return NextResponse.json({ ok: true, match: updatedMatch });
+    }
+
     // 0A) Jugador presiona "ACEPTAR PARTIDA" durante el Ready Check
     if (action === "accept_match") {
       if (match.status !== "ready_check") {

@@ -328,6 +328,9 @@ export default function Home() {
             return;
           }
           setActiveMatch(data);
+          if (Array.isArray(data.chat_messages) && data.chat_messages.length > 0) {
+            setChatMessages(data.chat_messages);
+          }
           if (data.banned_maps) {
             setBannedMaps((prev) => (prev.length !== data.banned_maps.length ? data.banned_maps : prev));
           }
@@ -369,19 +372,7 @@ export default function Home() {
       time: "Ahora",
       isSystem: true,
     },
-    {
-      id: 2,
-      sender: "MaracayAim",
-      text: "Acabo de completar la mision semanal de Deathmatch FFA (+15 ELO), vamos activos a ganar Mirage.",
-      time: "Hace 5s",
-    },
-    {
-      id: 3,
-      sender: "ZuliaPeek",
-      text: "Esta es mi 5ta partida de calibracion mano, vamos a ganarla para arrancar cerca de 100 ELO!",
-      time: "Hace 2s",
-    },
-  ]);
+    ]);
 
   const [weekExpiresAt, setWeekExpiresAt] = useState<number>(0);
   const [missionsHydrated, setMissionsHydrated] = useState(false);
@@ -831,22 +822,46 @@ const resetVeto = () => {
     setTimeLeft(15);
   };
 
-  const sendChatMessage = (customText?: string) => {
+  const sendChatMessage = async (customText?: string) => {
     const msgToSend = (customText ?? chatInput).trim();
     if (!msgToSend) return;
 
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        sender: captainAlphaName,
-        text: msgToSend,
-        time: "Ahora",
-      },
-    ]);
+    const myRealNick =
+      currentPlayerProfile?.nickname ||
+      [...(activeMatch?.team_alpha || []), ...(activeMatch?.team_omega || [])].find(
+        (p: any) => String(p?.steam_id) === String(loggedSteamId)
+      )?.nickname ||
+      "Jugador";
 
+    const optimisticMsg = {
+      id: Date.now(),
+      sender: myRealNick,
+      text: msgToSend,
+      time: "Ahora",
+    };
+
+    setChatMessages((prev) => [...prev, optimisticMsg]);
     if (!customText) {
       setChatInput("");
+    }
+
+    if (activeMatch?.id) {
+      try {
+        const res = await fetch("/api/match-veto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            match_id: activeMatch.id,
+            action: "chat",
+            sender: myRealNick,
+            text: msgToSend,
+          }),
+        });
+        const data = await res.json();
+        if (data?.ok && Array.isArray(data?.match?.chat_messages)) {
+          setChatMessages(data.match.chat_messages);
+        }
+      } catch {}
     }
   };
 
@@ -872,7 +887,10 @@ const resetVeto = () => {
             await fetchLeaderboard();
           } else {
             setActiveMatch(data);
-            if (data.banned_maps) {
+            if (Array.isArray(data.chat_messages) && data.chat_messages.length > 0) {
+            setChatMessages(data.chat_messages);
+          }
+          if (data.banned_maps) {
               setBannedMaps((prev) =>
                 prev.length !== data.banned_maps.length ? data.banned_maps : prev
               );
@@ -1411,7 +1429,7 @@ const resetVeto = () => {
                           : "bg-[#171a21] text-[#8f98a0] border border-[#2a475e]"
                       }`}
                     >
-                      {isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA"}
+                      {activeMatch?.status === "veto" ? (isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA") : activeMatch?.status === "ready_check" ? "CONFIRMANDO" : "EN COLA"}
                     </span>
                   )}
                 </div>
@@ -1571,7 +1589,7 @@ const resetVeto = () => {
                           : "bg-[#171a21] text-[#8f98a0] border border-[#2a475e]"
                       }`}
                     >
-                      {!isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA"}
+                      {activeMatch?.status === "veto" ? (!isAlphaTurn ? "VETANDO AHORA" : "EN ESPERA") : activeMatch?.status === "ready_check" ? "CONFIRMANDO" : "EN COLA"}
                     </span>
                   )}
                   <div className="flex items-center gap-2.5 ml-auto text-right">
@@ -1703,18 +1721,20 @@ const resetVeto = () => {
 
                     <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
                       <a
-                        href="steam://connect/mia1.aimvesports.com:27015"
+                        href={`steam://connect/${(activeMatch?.server_connect || "miami1.aimvesports.com:27025").replace("connect ", "").trim()}`}
                         className="w-full sm:w-auto text-center px-6 py-3 rounded-sm bg-gradient-to-r from-[#a4d007] to-[#7aa600] hover:brightness-110 text-[#171a21] font-black text-xs uppercase tracking-wider transition"
                       >
                         &gt; ENTRAR A LA PARTIDA (ABRIR CS2)
                       </a>
-                      <button
-                        onClick={handleSimulateFinish}
-                        disabled={savingMatch}
-                        className="w-full sm:w-auto px-5 py-3 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-black text-xs uppercase tracking-wider transition cursor-pointer"
-                      >
-                        {savingMatch ? "ACTUALIZANDO ELO..." : "FINALIZAR Y SUBIR RESULTADO"}
-                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={handleSimulateFinish}
+                          disabled={savingMatch}
+                          className="w-full sm:w-auto px-5 py-3 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-black text-xs uppercase tracking-wider transition cursor-pointer"
+                        >
+                          {savingMatch ? "ACTUALIZANDO ELO..." : "FINALIZAR Y SUBIR RESULTADO"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     const payload = await request.json();
     const eventType = payload.event || "map_result";
 
-    if (eventType !== "map_result" && eventType !== "series_end" && eventType !== "surrender") {
+    if (!["map_result", "series_end", "surrender", "match_aborted", "series_cancel"].includes(eventType)) {
       return NextResponse.json({ ok: true, ignored_event: eventType });
     }
 
