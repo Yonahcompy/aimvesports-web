@@ -69,7 +69,10 @@ export async function GET(request: Request) {
         hostname: `AimVe Sports | Premier 5v5 #${match.id} | Miami 128-Tick`,
         mp_overtime_enable: "1",
         mp_overtime_maxrounds: "6",
-        mp_overtime_startmoney: "10000"
+        mp_overtime_startmoney: "10000",
+        matchzy_remote_log_url: "https://www.aimvesports.com/api/matchzy-webhook",
+        matchzy_remote_log_header_key: "x-aimve-secret",
+        matchzy_remote_log_header_value: process.env.MATCHZY_WEBHOOK_SECRET || "aimve_matchzy_secret_2026"
       }
     };
 
