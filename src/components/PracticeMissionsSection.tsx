@@ -216,14 +216,23 @@ export default React.memo(function PracticeMissionsSection({
                       >
                         Reclamar +{m.eloReward} ELO y Bono
                       </button>
-                    ) : (
+                    ) : isAdmin ? (
                       <button
                         type="button"
                         onClick={() => handleAdvanceMissionProgress(m.id)}
                         className="w-full py-1.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white text-[11px] font-bold uppercase transition cursor-pointer"
                       >
-                        Completar en Practica ({m.goal}/{m.goal})
+                        Simular Mision (Admin {m.goal}/{m.goal})
                       </button>
+                    ) : (
+                      <a
+                        href={`steam://connect/miami1.aimvesports.com:${
+                          m.modeId === "aim_botz" ? "27016" : m.modeId === "dm_ffa" ? "27017" : "27018"
+                        }`}
+                        className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition"
+                      >
+                        Entrar al Servidor para Progresar
+                      </a>
                     )}
                   </div>
                 </div>

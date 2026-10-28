@@ -43,10 +43,24 @@ export async function POST(request: Request) {
     if (!String(steamId).startsWith("bot_")) {
       const { data: existingPlayer } = await supabase
         .from("leaderboard_players")
-        .select("id, steam_id")
+        .select("id, steam_id, cooldown_until")
         .or(`steam_id.eq.${steamId},nickname.eq.${nickname}`)
         .limit(1)
         .maybeSingle();
+
+      if (existingPlayer?.cooldown_until) {
+        const cdTime = new Date(existingPlayer.cooldown_until).getTime();
+        if (cdTime > Date.now()) {
+          const secsLeft = Math.ceil((cdTime - Date.now()) / 1000);
+          return NextResponse.json(
+            {
+              error: `Penalizacion por no aceptar partida (Queue Dodge): Podras volver a buscar en ${secsLeft}s.`,
+              cooldown_seconds: secsLeft,
+            },
+            { status: 429 }
+          );
+        }
+      }
 
       if (!existingPlayer) {
         await supabase.from("leaderboard_players").insert([

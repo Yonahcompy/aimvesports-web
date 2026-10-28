@@ -43,10 +43,18 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Mensaje vacio" }, { status: 400 });
       }
       const currentChat = Array.isArray(match.chat_messages) ? match.chat_messages : [];
+      const isSenderAlpha =
+        Array.isArray(match.team_alpha) &&
+        match.team_alpha.some((p: any) => String(p?.steam_id) === String(steam_id));
+      const isSenderOmega =
+        Array.isArray(match.team_omega) &&
+        match.team_omega.some((p: any) => String(p?.steam_id) === String(steam_id));
+      const resolvedTeam = isSenderAlpha ? "alpha" : isSenderOmega ? "omega" : team || "alpha";
+
       const newMsg = {
         id: Date.now() + Math.floor(Math.random() * 1000),
         sender: sender || "Jugador",
-        team: team || "alpha",
+        team: resolvedTeam,
         text: String(text).trim().slice(0, 180),
         time: new Date().toLocaleTimeString("es-VE", { timeZone: "America/Caracas", hour: "2-digit", minute: "2-digit" })
       };

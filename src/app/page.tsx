@@ -425,6 +425,11 @@ export default function Home() {
         method: "DELETE",
       });
       const data = await res.json();
+      if (!res.ok && data?.error) {
+        setQueueSearching(false);
+        setMissionBanner(data.error);
+        return;
+      }
       if (Array.isArray(data?.queue)) {
         setQueuedPlayers(data.queue);
         setQueueCount(data.queue.length);
@@ -477,6 +482,8 @@ export default function Home() {
           body: JSON.stringify({
             action: "mission_claim",
             player_id: currentPlayerProfile.id,
+            steam_id: loggedSteamId,
+            mission_id: missionId,
             mission_reward: targetMission.eloReward,
           }),
         });
@@ -569,6 +576,11 @@ export default function Home() {
         }),
       });
       const data = await res.json();
+      if (!res.ok && data?.error) {
+        setQueueSearching(false);
+        setMissionBanner(data.error);
+        return;
+      }
       if (data?.status === "matched" && data?.match) {
         setActiveMatch(data.match);
         setQueueSearching(false);
@@ -652,6 +664,11 @@ export default function Home() {
         }),
       });
       const data = await res.json();
+      if (!res.ok && data?.error) {
+        setQueueSearching(false);
+        setMissionBanner(data.error);
+        return;
+      }
       if (data?.ok && data?.match) {
         setActiveMatch(data.match);
       }
@@ -716,11 +733,17 @@ export default function Home() {
           body: JSON.stringify({
             match_id: activeMatch.id,
             action: "chat",
+            steam_id: loggedSteamId,
             sender: myRealNick,
             text: msgToSend,
           }),
         });
         const data = await res.json();
+      if (!res.ok && data?.error) {
+        setQueueSearching(false);
+        setMissionBanner(data.error);
+        return;
+      }
         if (data?.ok && Array.isArray(data?.match?.chat_messages)) {
           setChatMessages(data.match.chat_messages);
         }
@@ -1464,7 +1487,7 @@ export default function Home() {
               <div className="bg-[#171a21] border border-[#2a475e] rounded-sm flex flex-col justify-between h-full min-h-[290px]">
                 <div className="px-4 py-2.5 border-b border-[#2a475e] flex items-center justify-between bg-[#111318]">
                   <span className="text-xs font-black uppercase tracking-wider text-[#66c0f4]">
-                    CHAT DEL LOBBY (SALA ACTIVA)
+                    CHAT PRIVADO DE TU EQUIPO
                   </span>
                   <span className="text-[10px] font-bold text-[#a4d007]">
                     {activeMatch ? "10 en Sala" : `${queueCount} en Cola`}
@@ -1472,7 +1495,18 @@ export default function Home() {
                 </div>
 
                 <div className="p-3.5 space-y-2.5 overflow-y-auto max-h-52 text-xs">
-                  {chatMessages.map((msg) => (
+                  {chatMessages
+                    .filter((msg) => {
+                      if (msg.isSystem || !msg.team || !activeMatch) return true;
+                      const iAmOmega =
+                        Array.isArray(activeMatch?.team_omega) &&
+                        activeMatch.team_omega.some(
+                          (p: any) => String(p?.steam_id) === String(loggedSteamId)
+                        );
+                      const myTeam = iAmOmega ? "omega" : "alpha";
+                      return msg.team === myTeam;
+                    })
+                    .map((msg) => (
                     <div
                       key={msg.id}
                       className={`p-2 rounded-sm ${
