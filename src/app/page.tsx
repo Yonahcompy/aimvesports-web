@@ -782,88 +782,124 @@ const resetVeto = () => {
     }
   };
 
+  // Refrescar historial y leaderboard automaticamente en todas las pantallas al cerrarse la sala
+  useEffect(() => {
+    if (activeMatch === null) {
+      fetchMatches();
+      fetchLeaderboard();
+      const timer = setTimeout(() => {
+        fetchMatches();
+        fetchLeaderboard();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [activeMatch]);
+
   // Finalizar partida aplicando Calibracion (6 partidas -> 25-100 ELO), Bono Mano Caliente y Escudo de ELO
   const handleSimulateFinish = async () => {
-    if (!isAdmin) return;
-    if (activeMatch?.id) { fetch('/api/match-veto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ match_id: activeMatch.id, action: 'finish' }) }).catch(()=>{}); setActiveMatch(null); setBannedMaps([]); }
-    if (!finalMap) return;
+    if (!isAdmin || !finalMap || !activeMatch?.id || savingMatch) return;
     setSavingMatch(true);
 
-    const roundsLoser = Math.floor(Math.random() * 10) + 2;
-    const alphaWins = Math.random() > 0.5;
-    const winnerTeam = alphaWins ? `Equipo ${captainAlphaName}` : `Equipo ${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`;
+    try {
+      const res = await fetch("/api/match-veto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ match_id: activeMatch.id, action: "finish" }),
+      });
+      const finishData = await res.json();
 
-    await supabase.from("matches").insert([
-      {
-        team_a: `Equipo ${captainAlphaName}`,
-        team_b: `Equipo ${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`,
-        selected_map: finalMap.id,
-        banned_maps: bannedMaps,
-        score_a: alphaWins ? 13 : roundsLoser,
-        score_b: alphaWins ? roundsLoser : 13,
-        status: "PREMIER 5v5",
-        winner: winnerTeam,
-      },
-    ]);
-
-    const winnerRow = alphaWins ? currentPlayerProfile : leaderboard.find((p) => p.nickname === `${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`);
-    const loserRow = alphaWins ? leaderboard.find((p) => p.nickname === `${activeMatch?.team_omega?.[0]?.nickname || 'Omega'}`) : currentPlayerProfile;
-
-    if (winnerRow) {
-      const newWins = winnerRow.wins + 1;
-      const newTotal = newWins + winnerRow.losses;
-      const stompBonus = roundsLoser <= 4 ? 4 : 0;
-      const warmupBonus = alphaWins && hotHandBonus ? 10 : 0;
-
-      const nextElo =
-        newTotal < 6
-          ? 0
-          : newTotal === 6
-          ? getInitialCalibratedElo(newWins)
-          : winnerRow.elo + 25 + stompBonus + warmupBonus;
-
-      if (alphaWins && hotHandBonus) setHotHandBonus(false);
-
-      await supabase
-        .from("leaderboard_players")
-        .update({ elo: nextElo, wins: newWins })
-        .eq("id", winnerRow.id);
-    }
-
-    if (loserRow) {
-      const newLosses = loserRow.losses + 1;
-      const newTotal = loserRow.wins + newLosses;
-      const isProtectedByShield = !alphaWins && eloShieldActive;
-
-      const nextElo =
-        newTotal < 6
-          ? 0
-          : newTotal === 6
-          ? getInitialCalibratedElo(loserRow.wins)
-          : isProtectedByShield
-          ? loserRow.elo
-          : Math.max(25, loserRow.elo - 18);
-
-      if (isProtectedByShield) {
-        setEloShieldActive(false);
-        setMissionBanner("Tu Escudo Protector de Retakes absorbio la derrota: perdiste 0 ELO!");
+      // Si otro admin o pestaña ya cerro esta partida, no duplicar el resultado
+      if (!finishData?.ok) {
+        setActiveMatch(null);
+        setBannedMaps([]);
+        await fetchMatches();
+        await fetchLeaderboard();
+        setSavingMatch(false);
+        return;
       }
 
-      await supabase
-        .from("leaderboard_players")
-        .update({ elo: nextElo, losses: newLosses })
-        .eq("id", loserRow.id);
-    }
+      const omegaCapName = activeMatch?.team_omega?.[0]?.nickname || "Omega";
+      const roundsLoser = Math.floor(Math.random() * 10) + 2;
+      const alphaWins = Math.random() > 0.5;
+      const winnerTeam = alphaWins ? `Equipo ${captainAlphaName}` : `Equipo ${omegaCapName}`;
 
-    if (loggedSteamId) {
-      await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
+      await supabase.from("matches").insert([
+        {
+          team_a: `Equipo ${captainAlphaName}`,
+          team_b: `Equipo ${omegaCapName}`,
+          selected_map: finalMap.id,
+          banned_maps: bannedMaps,
+          score_a: alphaWins ? 13 : roundsLoser,
+          score_b: alphaWins ? roundsLoser : 13,
+          status: "PREMIER 5v5",
+          winner: winnerTeam,
+        },
+      ]);
+
+      const winnerRow = alphaWins
+        ? currentPlayerProfile
+        : leaderboard.find((p) => p.nickname === omegaCapName);
+      const loserRow = alphaWins
+        ? leaderboard.find((p) => p.nickname === omegaCapName)
+        : currentPlayerProfile;
+
+      if (winnerRow) {
+        const newWins = winnerRow.wins + 1;
+        const newTotal = newWins + winnerRow.losses;
+        const stompBonus = roundsLoser <= 4 ? 4 : 0;
+        const warmupBonus = alphaWins && hotHandBonus ? 10 : 0;
+
+        const nextElo =
+          newTotal < 6
+            ? 0
+            : newTotal === 6
+            ? getInitialCalibratedElo(newWins)
+            : winnerRow.elo + 25 + stompBonus + warmupBonus;
+
+        if (alphaWins && hotHandBonus) setHotHandBonus(false);
+
+        await supabase
+          .from("leaderboard_players")
+          .update({ elo: nextElo, wins: newWins })
+          .eq("id", winnerRow.id);
+      }
+
+      if (loserRow) {
+        const newLosses = loserRow.losses + 1;
+        const newTotal = loserRow.wins + newLosses;
+        const isProtectedByShield = !alphaWins && eloShieldActive;
+
+        const nextElo =
+          newTotal < 6
+            ? 0
+            : newTotal === 6
+            ? getInitialCalibratedElo(loserRow.wins)
+            : isProtectedByShield
+            ? loserRow.elo
+            : Math.max(25, loserRow.elo - 18);
+
+        if (isProtectedByShield) {
+          setEloShieldActive(false);
+          setMissionBanner("Tu Escudo Protector de Retakes absorbio la derrota: perdiste 0 ELO!");
+        }
+
+        await supabase
+          .from("leaderboard_players")
+          .update({ elo: nextElo, losses: newLosses })
+          .eq("id", loserRow.id);
+      }
+
+      if (loggedSteamId) {
+        await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
+      }
+
+      setActiveMatch(null);
+      setBannedMaps([]);
+      await fetchMatches();
+      await fetchLeaderboard();
+    } finally {
+      setSavingMatch(false);
     }
-    if (loggedSteamId) {
-      await fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
-    }
-    await fetchMatches();
-    await fetchLeaderboard();
-    setSavingMatch(false);
   };
 
   const handleRegister = async (e: React.FormEvent) => {

@@ -30,16 +30,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Partida no encontrada" }, { status: 404 });
     }
 
-    // A) Cerrar partida definitivamente y liberar a los 10 jugadores
+    // A) Cerrar partida definitivamente (Idempotente: solo se ejecuta una vez por partida)
     if (action === "finish") {
+      if (match.status === "finished") {
+        return NextResponse.json({ ok: false, already_finished: true });
+      }
       const { data: finishedMatch, error: finErr } = await supabase
         .from("active_matches")
         .update({ status: "finished", turn_expires_at: null })
         .eq("id", match.id)
+        .neq("status", "finished")
         .select()
         .single();
 
-      if (finErr) throw finErr;
+      if (finErr || !finishedMatch) {
+        return NextResponse.json({ ok: false, already_finished: true });
+      }
       return NextResponse.json({ ok: true, match: finishedMatch });
     }
 
