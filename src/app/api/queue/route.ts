@@ -23,6 +23,12 @@ export async function GET() {
 // POST: Entrar a la cola y formar partida automatica al llegar a 10
 export async function POST(request: Request) {
   try {
+    const url = new URL(request.url);
+    const leaveSteamId = url.searchParams.get("leave_steam_id");
+    if (leaveSteamId) {
+      await supabase.from("matchmaking_queue").delete().eq("steam_id", leaveSteamId);
+      return NextResponse.json({ ok: true, left: true });
+    }
     const { steam_id, nickname, elo, country } = await request.json();
 
     if (!steam_id || !nickname) {

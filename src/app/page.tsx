@@ -264,7 +264,7 @@ export default function Home() {
   useEffect(() => {
     const restoreState = async () => {
       if (!loggedSteamId) return;
-      const { data: matches } = await supabase.from('active_matches').select('*').eq('status', 'veto');
+      const { data: matches } = await supabase.from('active_matches').select('*').in('status', ['veto', 'live']);
       if (matches) {
         const myMatch = matches.find((m: any) => 
           m.team_alpha?.some((p: any) => String(p.steam_id) === String(loggedSteamId)) || 
@@ -324,7 +324,7 @@ export default function Home() {
   useEffect(() => {
     const handleUnload = () => {
       if (loggedSteamId && !activeMatch) {
-        navigator.sendBeacon('/api/queue?steam_id=' + loggedSteamId);
+        navigator.sendBeacon('/api/queue?leave_steam_id=' + loggedSteamId);
       }
     };
     window.addEventListener('beforeunload', handleUnload);
