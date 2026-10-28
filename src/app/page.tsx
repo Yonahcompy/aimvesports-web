@@ -32,6 +32,7 @@ function isPlayerInMatch(matchObj: any, steamId: string | null): boolean {
 
 export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [loggedSteamId, setLoggedSteamId] = useState<string | null>(null);
   const [loggedPlayer, setLoggedPlayer] = useState<LeaderboardPlayer | null>(null);
@@ -402,14 +403,45 @@ export default function Home() {
     }
   }, [fetchMatches, fetchLeaderboard]);
 
-  const handleLogoutSteam = () => {
-    if (loggedSteamId) {
-      fetch(`/api/queue?steam_id=${loggedSteamId}`, { method: "DELETE" }).catch(() => {});
+  const handleLeaveQueue = async (targetSteamId?: string | null) => {
+    const idToRemove = targetSteamId || loggedSteamId;
+    if (!idToRemove) return;
+
+    // Limpieza visual inmediata en la tabla local
+    setQueueSearching(false);
+    setQueuedPlayers((prev) => {
+      const filtered = prev.filter((p: any) => String(p.steam_id) !== String(idToRemove));
+      setQueueCount(filtered.length);
+      return filtered;
+    });
+
+    try {
+      const res = await fetch(`/api/queue?steam_id=${encodeURIComponent(String(idToRemove))}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (Array.isArray(data?.queue)) {
+        setQueuedPlayers(data.queue);
+        setQueueCount(data.queue.length);
+      } else {
+        await fetchCola();
+      }
+    } catch {
+      await fetchCola();
     }
+  };
+
+  const confirmAndLogoutSteam = async () => {
+    const currentId = loggedSteamId;
+    setLogoutConfirmOpen(false);
     localStorage.removeItem("aimve_steam_id");
     setLoggedSteamId(null);
     setLoggedPlayer(null);
     setSteamId("");
+
+    if (currentId) {
+      await handleLeaveQueue(currentId);
+    }
   };
 
   const handleClaimMission = useCallback(
@@ -895,7 +927,7 @@ export default function Home() {
                 )}
               </div>
               <button
-                onClick={handleLogoutSteam}
+                onClick={() => setLogoutConfirmOpen(true)}
                 title="Cerrar sesion de Steam"
                 className="px-2.5 py-2 rounded-sm bg-[#1b2838] hover:bg-red-950/60 border border-[#2a475e] hover:border-red-500/50 text-xs text-[#8f98a0] hover:text-red-300 font-bold transition cursor-pointer"
               >
@@ -982,14 +1014,18 @@ export default function Home() {
             </div>
             <div className="mt-3 md:mt-0 flex flex-wrap items-center gap-3">
               <button
-                onClick={handleStartSoloQueue}
+                onClick={() => (queueSearching ? handleLeaveQueue() : handleStartSoloQueue())}
                 disabled={!!activeMatch}
-                className="text-xs px-3.5 py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] font-black uppercase transition cursor-pointer"
+                className={`text-xs px-3.5 py-1.5 rounded-sm font-black uppercase transition cursor-pointer ${
+                  queueSearching
+                    ? "bg-red-600 hover:bg-red-500 text-white"
+                    : "bg-[#a4d007] hover:brightness-110 text-[#171a21]"
+                }`}
               >
                 {activeMatch
                   ? "PARTIDA EN CURSO"
                   : queueSearching
-                  ? `Buscando Jugadores (${queueCount}/10)...`
+                  ? `Salir de la Cola (${queueCount}/10)`
                   : "Buscar Nueva Partida Solo Q"}
               </button>
               {activeMatch && (
@@ -1513,6 +1549,40 @@ export default function Home() {
         </p>
         <p className="mt-1">Soporte y alianzas comerciales: contacto@aimvesports.com</p>
       </footer>
+
+      {logoutConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#1b2838] border border-red-500/60 rounded-sm max-w-sm w-full p-6 relative shadow-2xl text-center">
+            <div className="text-[11px] font-black text-red-400 uppercase tracking-widest mb-1">
+              CONFIRMAR DESCONEXION
+            </div>
+            <h3 className="text-xl font-black text-white mb-2">
+              ¿Cerrar sesion de Steam?
+            </h3>
+            <p className="text-xs text-[#8f98a0] mb-6 leading-relaxed">
+              {queueSearching || queuedPlayers.some((p: any) => String(p.steam_id) === String(loggedSteamId))
+                ? "Actualmente estas en la cola de emparejamiento 5v5. Si cierras sesion, seras retirado inmediatamente de la sala de espera."
+                : "Tendras que volver a iniciar sesion con Steam para buscar partida o reclamar misiones semanales."}
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setLogoutConfirmOpen(false)}
+                className="flex-1 py-2.5 rounded-sm bg-[#2a475e] hover:bg-[#3b607d] text-white text-xs font-bold uppercase transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmAndLogoutSteam}
+                className="flex-1 py-2.5 rounded-sm bg-red-600 hover:bg-red-500 text-white text-xs font-black uppercase transition cursor-pointer shadow-lg shadow-red-600/30"
+              >
+                Si, Desconectar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">

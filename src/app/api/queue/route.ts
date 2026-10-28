@@ -188,9 +188,14 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const steam_id = searchParams.get("steam_id");
     if (steam_id) {
-      await supabase.from("matchmaking_queue").delete().eq("steam_id", steam_id);
+      await supabase.from("matchmaking_queue").delete().eq("steam_id", String(steam_id));
     }
-    return NextResponse.json({ ok: true });
+    const { data: updatedQueue } = await supabase
+      .from("matchmaking_queue")
+      .select("*")
+      .order("joined_at", { ascending: true });
+
+    return NextResponse.json({ ok: true, queue: updatedQueue || [] });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
