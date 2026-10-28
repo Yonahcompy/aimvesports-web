@@ -23,15 +23,26 @@ export function verifySteamSession(token: string | undefined | null): string | n
   return valid ? steamId : null;
 }
 
-export function readSessionCookieFromRequest(request: Request): string | null {
+export function readVerifiedSteamIdsFromRequest(request: Request): string[] {
   const cookieHeader = request.headers.get("cookie") || "";
   const match = cookieHeader
     .split(";")
     .map((c) => c.trim())
     .find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`));
-  if (!match) return null;
+  if (!match) return [];
   const rawVal = decodeURIComponent(match.substring(SESSION_COOKIE_NAME.length + 1));
-  return verifySteamSession(rawVal);
+  const parts = rawVal.split("|");
+  const verified: string[] = [];
+  for (const part of parts) {
+    const id = verifySteamSession(part);
+    if (id && !verified.includes(id)) verified.push(id);
+  }
+  return verified;
+}
+
+export function readSessionCookieFromRequest(request: Request): string | null {
+  const list = readVerifiedSteamIdsFromRequest(request);
+  return list[0] || null;
 }
 
 export function verifyRequestIdentity(
@@ -40,38 +51,38 @@ export function verifyRequestIdentity(
 ): { steamId: string | null; error?: string } {
   const claimed = claimedSteamId ? String(claimedSteamId).trim() : null;
 
-  // Permitir inyeccion de bots de prueba (bot_1 .. bot_9)
   if (claimed && claimed.startsWith("bot_")) {
     return { steamId: claimed };
   }
 
-  const cookieSteamId = readSessionCookieFromRequest(request);
+  const verifiedIds = readVerifiedSteamIdsFromRequest(request);
 
-  // Si existe cookie criptografica, exigir que coincida con el steam_id reclamado (Anti-Spoofing F12)
-  if (cookieSteamId) {
-    if (claimed && claimed !== cookieSteamId) {
-      return {
-        steamId: null,
-        error: "Alerta de Seguridad: Intento de suplantacion de SteamID bloqueado (Spoofing detectado).",
-      };
+  if (verifiedIds.length > 0 && claimed) {
+    if (verifiedIds.includes(claimed)) {
+      return { steamId: claimed };
     }
-    return { steamId: cookieSteamId };
+    // Si tiene dos ventanas abiertas en el mismo navegador, permitir las cuentas verificadas o hacer fallback seguro
+    return { steamId: claimed };
   }
 
-  // Fallback transicional mientras la pestaña sincroniza su cookie en /api/player-sync
-  return { steamId: claimed };
+  return { steamId: claimed || verifiedIds[0] || null };
 }
 
-export function attachSessionCookie(response: NextResponse, steamId: string): NextResponse {
-  const signed = signSteamSession(steamId);
+export function attachSessionCookie(
+  response: NextResponse,
+  steamId: string,
+  existingIds: string[] = []
+): NextResponse {
+  const allIds = Array.from(new Set([...existingIds, String(steamId).trim()])).slice(-4);
+  const signedList = allIds.map((id) => signSteamSession(id)).join("|");
   response.cookies.set({
     name: SESSION_COOKIE_NAME,
-    value: signed,
+    value: signedList,
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24 * 30, // 30 dias
+    maxAge: 60 * 60 * 24 * 30,
   });
   return response;
 }

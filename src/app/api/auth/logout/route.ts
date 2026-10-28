@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   SESSION_COOKIE_NAME,
   attachSessionCookie,
-  readSessionCookieFromRequest,
+  readVerifiedSteamIdsFromRequest,
 } from "@/lib/session";
 
 export async function PUT(request: Request) {
@@ -12,11 +12,11 @@ export async function PUT(request: Request) {
     if (!claimedId) {
       return NextResponse.json({ error: "Falta steam_id" }, { status: 400 });
     }
-    const existingCookieId = readSessionCookieFromRequest(request);
-    const effectiveId = existingCookieId || claimedId;
+    const existingIds = readVerifiedSteamIdsFromRequest(request);
     return attachSessionCookie(
-      NextResponse.json({ ok: true, steam_id: effectiveId }),
-      effectiveId
+      NextResponse.json({ ok: true, steam_id: claimedId }),
+      claimedId,
+      existingIds
     );
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
