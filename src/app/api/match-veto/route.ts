@@ -30,7 +30,84 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Partida no encontrada" }, { status: 404 });
     }
 
-    // A1) Bloquear partida mientras se guarda el marcador (evita duplicados)
+    // 0A) Jugador presiona "ACEPTAR PARTIDA" durante el Ready Check
+    if (action === "accept_match") {
+      if (match.status !== "ready_check") {
+        return NextResponse.json({ ok: false, reason: "La fase de confirmacion ya termino" });
+      }
+      if (!steam_id) {
+        return NextResponse.json({ error: "Falta steam_id" }, { status: 400 });
+      }
+
+      const currentAccepted: string[] = Array.isArray(match.accepted_players)
+        ? match.accepted_players.map(String)
+        : [];
+      const updatedAccepted = Array.from(new Set([...currentAccepted, String(steam_id)]));
+      const allReady = updatedAccepted.length >= 10;
+
+      const nextStatus = allReady ? "veto" : "ready_check";
+      const nextExpiration = allReady
+        ? new Date(Date.now() + 16000).toISOString()
+        : match.turn_expires_at;
+
+      const { data: updatedMatch, error: accErr } = await supabase
+        .from("active_matches")
+        .update({
+          accepted_players: updatedAccepted,
+          status: nextStatus,
+          turn_expires_at: nextExpiration
+        })
+        .eq("id", match.id)
+        .select()
+        .single();
+
+      if (accErr) throw accErr;
+      return NextResponse.json({ ok: true, match: updatedMatch });
+    }
+
+    // 0B) Se agotaron los 20s del Ready Check: expulsar AFKs y devolver activos a la cola
+    if (action === "ready_timeout") {
+      if (match.status !== "ready_check") {
+        return NextResponse.json({ ok: false, reason: "No esta en ready_check" });
+      }
+
+      const exp = match.turn_expires_at ? new Date(match.turn_expires_at).getTime() : 0;
+      if (Date.now() < exp - 500) {
+        return NextResponse.json({ ok: false, reason: "Aun quedan segundos para aceptar" });
+      }
+
+      const { data: cancelledMatch, error: cancelErr } = await supabase
+        .from("active_matches")
+        .update({ status: "finished", turn_expires_at: null })
+        .eq("id", match.id)
+        .eq("status", "ready_check")
+        .select()
+        .single();
+
+      if (cancelErr || !cancelledMatch) {
+        return NextResponse.json({ ok: false, already_handled: true });
+      }
+
+      // Devolver a la cola unicamente a los jugadores reales que SI aceptaron
+      const acceptedSet = new Set((match.accepted_players || []).map(String));
+      const allPlayers = [...(match.team_alpha || []), ...(match.team_omega || [])];
+      const activePlayersToRequeue = allPlayers
+        .filter((p: any) => acceptedSet.has(String(p.steam_id)) && !String(p.steam_id).startsWith("bot_"))
+        .map((p: any) => ({
+          steam_id: String(p.steam_id),
+          nickname: p.nickname || "Jugador",
+          elo: Number(p.elo) || 0,
+          country: p.country || "VE"
+        }));
+
+      if (activePlayersToRequeue.length > 0) {
+        await supabase.from("matchmaking_queue").upsert(activePlayersToRequeue, { onConflict: "steam_id" });
+      }
+
+      return NextResponse.json({ ok: true, cancelled: true, requeued: activePlayersToRequeue.length });
+    }
+
+    // A1) Bloquear partida mientras se guarda el marcador
     if (action === "lock_finish") {
       if (match.status === "finished" || match.status === "finishing") {
         return NextResponse.json({ ok: false, already_finished: true });
@@ -49,7 +126,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, match: lockedMatch });
     }
 
-    // A2) Confirmar cierre definitivo una vez que el marcador ya fue insertado en 'matches'
+    // A2) Confirmar cierre definitivo
     if (action === "finish") {
       const { data: finishedMatch, error: finErr } = await supabase
         .from("active_matches")
@@ -86,7 +163,7 @@ export async function POST(request: Request) {
 
     const bannedMaps: string[] = match.banned_maps || [];
 
-    // C) Auto-Veto por Timeout (Funciona aunque el capitan en turno no tenga luz/internet)
+    // C) Auto-Veto por Timeout
     if (is_timeout) {
       const exp = match.turn_expires_at ? new Date(match.turn_expires_at).getTime() : 0;
       if (Date.now() < exp - 500) {

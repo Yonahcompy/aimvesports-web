@@ -60,7 +60,11 @@ export async function POST(request: Request) {
       const captain_omega_steam_id = team_omega[0].steam_id;
 
       // 5. Crear la partida oficial en active_matches
-      const expirationTime = new Date(Date.now() + 16000).toISOString(); // 15s de turno + 1s de margen
+      const expirationTime = new Date(Date.now() + 21000).toISOString(); // 20s para Aceptar Partida + 1s de margen
+      const autoAcceptedBots = [...team_alpha, ...team_omega]
+        .map((p: any) => String(p.steam_id))
+        .filter((id: string) => id.startsWith('bot_'));
+
       const { data: matchData, error: matchErr } = await supabase
         .from('active_matches')
         .insert([{
@@ -68,8 +72,9 @@ export async function POST(request: Request) {
           team_omega,
           captain_alpha_steam_id,
           captain_omega_steam_id,
-          status: 'veto',
+          status: 'ready_check',
           banned_maps: [],
+          accepted_players: autoAcceptedBots,
           turn_expires_at: expirationTime
         }])
         .select()

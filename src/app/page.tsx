@@ -264,7 +264,7 @@ export default function Home() {
   useEffect(() => {
     const restoreState = async () => {
       if (!loggedSteamId) return;
-      const { data: matches } = await supabase.from('active_matches').select('*').in('status', ['veto', 'live']);
+      const { data: matches } = await supabase.from('active_matches').select('*').in('status', ['ready_check', 'veto', 'live']);
       if (matches) {
         const myMatch = matches.find((m: any) => 
           m.team_alpha?.some((p: any) => String(p.steam_id) === String(loggedSteamId)) || 
@@ -298,19 +298,33 @@ export default function Home() {
     return () => { supabase.removeChannel(sub); };
   }, [activeMatch?.id]);
 
-    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s en veto, live y finishing)
+    // Sincronizacion Acorazada (Polling de respaldo cada 1.5s en ready_check, veto, live y finishing)
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (activeMatch?.id && ["veto", "live", "finishing"].includes(activeMatch?.status)) {
+    if (activeMatch?.id && ["ready_check", "veto", "live", "finishing"].includes(activeMatch?.status)) {
       interval = setInterval(async () => {
         const { data } = await supabase.from("active_matches").select("*").eq("id", activeMatch.id).single();
         if (data) {
           if (data.status === "finished") {
+            const wasReadyCheck = activeMatch.status === "ready_check";
+            const userAccepted = Array.isArray(activeMatch.accepted_players) &&
+              activeMatch.accepted_players.map(String).includes(String(loggedSteamId));
+
             await fetchMatches();
             await fetchLeaderboard();
             setActiveMatch(null);
             setBannedMaps([]);
-            setQueueSearching(false);
+
+            if (wasReadyCheck) {
+              setQueueSearching(userAccepted);
+              setMissionBanner(
+                userAccepted
+                  ? "Un jugador no acepto la partida a tiempo. Has sido devuelto a la cola automaticamente."
+                  : "No aceptaste la partida en 20 segundos. Has sido retirado de la cola."
+              );
+            } else {
+              setQueueSearching(false);
+            }
             return;
           }
           setActiveMatch(data);
@@ -321,7 +335,7 @@ export default function Home() {
       }, 1500);
     }
     return () => clearInterval(interval);
-  }, [activeMatch?.id, activeMatch?.status]);
+  }, [activeMatch?.id, activeMatch?.status, loggedSteamId]);
 
   // Anti-Fantasmas: Avisar al backend si el jugador cierra la pestaña para sacarlo de la cola
   useEffect(() => {
@@ -719,9 +733,9 @@ export default function Home() {
     const isAlphaTurn = bannedMaps.length % 2 === 0;
   const currentTurn = isAlphaTurn ? "EQUIPO ALPHA" : "EQUIPO OMEGA";
   const finalMap = bannedMaps.length >= 6 ? CS2_MAPS.find((m: any) => !bannedMaps.includes(m.id)) : null;
-    // Reloj Maestro (Lee la hora estricta de la nube y delega el auto-veto al servidor aunque el capitan se desconecte)
+    // Reloj Maestro (Controla los 20s de Aceptar Partida y los 15s de cada turno de Veto desde la nube)
   useEffect(() => {
-    if (!activeMatch || activeMatch.status !== 'veto') return;
+    if (!activeMatch || (activeMatch.status !== "veto" && activeMatch.status !== "ready_check")) return;
     
     const t = setInterval(() => {
       if (activeMatch.turn_expires_at) {
@@ -730,11 +744,19 @@ export default function Home() {
         setTimeLeft(remaining);
         
         if (remaining === 0) {
-          fetch("/api/match-veto", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ match_id: activeMatch.id, is_timeout: true })
-          }).catch(() => {});
+          if (activeMatch.status === "ready_check") {
+            fetch("/api/match-veto", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ match_id: activeMatch.id, action: "ready_timeout" })
+            }).catch(() => {});
+          } else if (activeMatch.status === "veto") {
+            fetch("/api/match-veto", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ match_id: activeMatch.id, is_timeout: true })
+            }).catch(() => {});
+          }
         }
       }
     }, 1000);
@@ -744,8 +766,28 @@ export default function Home() {
   // Veto Seguro: La orden viaja directamente al Juez del Backend (/api/match-veto)
   const isAdmin = ["76561199757155122", "76561199724566305"].includes(String(loggedSteamId));
 
+  // Confirmar asistencia en el Ready Check (20 segundos)
+  const handleAcceptMatch = async () => {
+    if (!activeMatch?.id || !loggedSteamId) return;
+    try {
+      const res = await fetch("/api/match-veto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          match_id: activeMatch.id,
+          steam_id: loggedSteamId,
+          action: "accept_match"
+        })
+      });
+      const data = await res.json();
+      if (data?.ok && data?.match) {
+        setActiveMatch(data.match);
+      }
+    } catch {}
+  };
+
   const handleBanMap = async (mapId: string) => {
-    if (finalMap || bannedMaps.includes(mapId) || !activeMatch) return;
+    if (finalMap || bannedMaps.includes(mapId) || !activeMatch || activeMatch.status !== "veto") return;
     try {
       await fetch("/api/match-veto", {
         method: "POST",
@@ -1400,6 +1442,51 @@ const resetVeto = () => {
                     >
                       Ir a Practicar Mientras Carga
                     </a>
+                  </div>
+                ) : activeMatch?.status === "ready_check" ? (
+                  <div className="w-full max-w-xs bg-[#171a21] border-2 border-[#a4d007] rounded-sm p-4 shadow-[0_0_25px_rgba(164,208,7,0.25)] text-center">
+                    <div className="text-[11px] font-black text-[#a4d007] uppercase tracking-widest mb-1 animate-pulse">
+                      ¡PARTIDA PREMIER ENCONTRADA!
+                    </div>
+                    <div className="text-[10px] text-[#8f98a0] mb-2">
+                      Confirma tu asistencia antes de iniciar el veto
+                    </div>
+                    <div className="font-mono text-2xl font-black text-white mb-2">
+                      00:{timeLeft < 10 ? `0${timeLeft}` : timeLeft}s
+                    </div>
+                    <div className="grid grid-cols-10 gap-1 mb-2">
+                      {Array.from({ length: 10 }).map((_, idx) => {
+                        const acceptedCount = Array.isArray(activeMatch?.accepted_players)
+                          ? activeMatch.accepted_players.length
+                          : 0;
+                        return (
+                          <div
+                            key={idx}
+                            className={`h-2 rounded-xs transition-all ${
+                              idx < acceptedCount
+                                ? "bg-[#a4d007] shadow-[0_0_6px_#a4d007]"
+                                : "bg-[#111318] border border-[#2a475e]/60"
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="text-[10px] font-bold text-[#c7d5e0] uppercase mb-3">
+                      {Array.isArray(activeMatch?.accepted_players) ? activeMatch.accepted_players.length : 0} / 10 Jugadores Listos
+                    </div>
+                    {Array.isArray(activeMatch?.accepted_players) &&
+                    activeMatch.accepted_players.map(String).includes(String(loggedSteamId)) ? (
+                      <div className="w-full py-2.5 rounded-sm bg-[#a4d007]/20 border border-[#a4d007] text-[#a4d007] font-black text-xs uppercase tracking-wider">
+                        ✓ Partida Aceptada — Esperando...
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleAcceptMatch}
+                        className="w-full py-2.5 rounded-sm bg-[#a4d007] hover:bg-[#b8e608] text-[#171a21] font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-[0_0_15px_rgba(164,208,7,0.5)]"
+                      >
+                        ACEPTAR PARTIDA
+                      </button>
+                    )}
                   </div>
                 ) : !finalMap ? (
                   <div className="w-full max-w-xs bg-[#171a21] border border-[#2a475e] rounded-sm p-4 shadow-inner">
