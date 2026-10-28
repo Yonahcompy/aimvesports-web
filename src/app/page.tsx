@@ -303,15 +303,17 @@ export default function Home() {
     let interval: NodeJS.Timeout;
     if (activeMatch?.id && activeMatch?.status === 'veto') {
       interval = setInterval(async () => {
-        const { data } = await supabase.from('active_matches').select('banned_maps').eq('id', activeMatch.id).single();
-        if (data && data.banned_maps) {
-          setBannedMaps(prev => {
-            // Solo actualizar si hay mapas nuevos en la nube para evitar parpadeos
-            if (prev.length !== data.banned_maps.length) {
-              return data.banned_maps;
-            }
-            return prev;
-          });
+        const { data } = await supabase.from('active_matches').select('*').eq('id', activeMatch.id).single();
+        if (data) {
+          setActiveMatch(data);
+          if (data.banned_maps) {
+            setBannedMaps(prev => {
+              if (prev.length !== data.banned_maps.length) {
+                return data.banned_maps;
+              }
+              return prev;
+            });
+          }
         }
       }, 1500);
     }
@@ -714,57 +716,55 @@ export default function Home() {
     const isAlphaTurn = bannedMaps.length % 2 === 0;
   const currentTurn = isAlphaTurn ? "EQUIPO ALPHA" : "EQUIPO OMEGA";
   const finalMap = bannedMaps.length >= 6 ? CS2_MAPS.find((m: any) => !bannedMaps.includes(m.id)) : null;
-  // Reloj de 15 segundos por turno con Auto-Veto
+    // Reloj Maestro (Lee la hora estricta de la nube y delega el veto al servidor)
   useEffect(() => {
-    if (finalMap || !activeMatch) return;
-
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          const available = CS2_MAPS.filter((m) => !bannedMaps.includes(m.id));
-          if (available.length > 1) {
-            const randomPick = available[Math.floor(Math.random() * available.length)];
-            setBannedMaps((curr) => [...curr, randomPick.id]);
+    if (!activeMatch || activeMatch.status !== 'veto') return;
+    
+    const t = setInterval(() => {
+      if (activeMatch.turn_expires_at) {
+        const exp = new Date(activeMatch.turn_expires_at).getTime();
+        const remaining = Math.max(0, Math.floor((exp - Date.now()) / 1000));
+        setTimeLeft(remaining);
+        
+        // Auto-vetar si el tiempo se agota (solo dispara el capitan en turno al servidor)
+        if (remaining === 0) {
+          const currentBans = activeMatch.banned_maps || [];
+          const isAlpha = currentBans.length % 2 === 0;
+          const currentCaptain = isAlpha ? activeMatch.captain_alpha_steam_id : activeMatch.captain_omega_steam_id;
+          
+          if (String(loggedSteamId) === String(currentCaptain)) {
+            const available = CS2_MAPS.filter((m) => !currentBans.includes(m.id));
+            if (available.length > 1) {
+              const randomMap = available[Math.floor(Math.random() * available.length)];
+              fetch("/api/match-veto", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ match_id: activeMatch.id, steam_id: loggedSteamId, map_id: randomMap.id })
+              }).catch(()=>{});
+            }
           }
-          return 15;
         }
-        return prev - 1;
-      });
+      }
     }, 1000);
+    return () => clearInterval(t);
+  }, [activeMatch, loggedSteamId]);
 
-    return () => clearInterval(timer);
-  }, [bannedMaps, finalMap, activeMatch]);
-
-  const handleBanMap = (mapId: string) => {
+  // Veto Seguro: La orden viaja directamente al Juez del Backend (/api/match-veto)
+  const handleBanMap = async (mapId: string) => {
     if (finalMap || bannedMaps.includes(mapId) || !activeMatch) return;
-    const amICaptainAlpha = String(loggedSteamId) === String(activeMatch.captain_alpha_steam_id);
-    const amICaptainOmega = String(loggedSteamId) === String(activeMatch.captain_omega_steam_id);
-
-  const isMyTurn = (isAlphaTurn && amICaptainAlpha) || (!isAlphaTurn && amICaptainOmega);
-    if (!isMyTurn) {
-      const turnoActual = isAlphaTurn ? "ALPHA" : "OMEGA";
-      console.warn("Clic denegado silenciosamente: No es tu turno.");
-      return;
-    }
-    const mapObj = CS2_MAPS.find((m) => m.id === mapId);
-    setBannedMaps([...bannedMaps, mapId]);
-    setTimeLeft(15);
-
-    if (mapObj) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          sender: isAlphaTurn ? "Capitán Alpha" : "Capitán Omega",
-          text: `Veto confirmado: descartado ${mapObj.name}.`,
-          time: "Ahora",
-          isSystem: true,
-        },
-      ]);
-    }
+    try {
+      await fetch("/api/match-veto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          match_id: activeMatch.id,
+          steam_id: loggedSteamId,
+          map_id: mapId
+        })
+      });
+    } catch {}
   };
-
-  const resetVeto = () => {
+const resetVeto = () => {
     setBannedMaps([]);
     setTimeLeft(15);
   };
