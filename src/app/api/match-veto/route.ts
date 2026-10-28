@@ -1,3 +1,4 @@
+import { verifyRequestIdentity } from "@/lib/session";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
@@ -14,7 +15,12 @@ const ALL_MAPS = [
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { match_id, steam_id, map_id, action, is_timeout } = body;
+    const { match_id, map_id, action, is_timeout } = body;
+    const identityCheck = verifyRequestIdentity(request, body.steam_id);
+    if (identityCheck.error) {
+      return NextResponse.json({ error: identityCheck.error }, { status: 403 });
+    }
+    const steam_id = identityCheck.steamId;
 
     if (!match_id) {
       return NextResponse.json({ error: "Falta match_id" }, { status: 400 });
@@ -42,7 +48,7 @@ export async function POST(request: Request) {
         sender: sender || "Jugador",
         team: team || "alpha",
         text: String(text).trim().slice(0, 180),
-        time: new Date().toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" })
+        time: new Date().toLocaleTimeString("es-VE", { timeZone: "America/Caracas", hour: "2-digit", minute: "2-digit" })
       };
       const updatedChat = [...currentChat.slice(-29), newMsg];
 

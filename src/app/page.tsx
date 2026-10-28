@@ -387,6 +387,11 @@ export default function Home() {
       if (activeSteam) {
         setLoggedSteamId(activeSteam);
         setSteamId(activeSteam);
+        fetch("/api/auth/logout", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ steam_id: activeSteam }),
+        }).catch(() => {});
         fetch("/api/player-sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -434,6 +439,7 @@ export default function Home() {
   const confirmAndLogoutSteam = async () => {
     const currentId = loggedSteamId;
     setLogoutConfirmOpen(false);
+    fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     localStorage.removeItem("aimve_steam_id");
     setLoggedSteamId(null);
     setLoggedPlayer(null);
