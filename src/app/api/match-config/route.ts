@@ -85,12 +85,18 @@ export async function GET(request: Request) {
       map_sides: ["knife"],
       clinch_series: true,
       players_per_team: 5,
-      min_players_to_ready: 1,
+      min_players_to_ready: Object.keys({ ...alphaPlayers, ...omegaPlayers }).some((k) =>
+        k.startsWith("bot_")
+      )
+        ? 1
+        : 5,
       cvars: {
         hostname: `AimVe Sports | Premier 5v5 #${match.id} | Miami 128-Tick`,
         mp_overtime_enable: "1",
         mp_overtime_maxrounds: "6",
         mp_overtime_startmoney: "10000",
+        mp_team_timeout_time: "120",
+        mp_team_timeout_max: "3",
         matchzy_gg_enabled: "1",
         matchzy_gg_min_score_diff: "0",
         matchzy_remote_log_url: "https://www.aimvesports.com/api/matchzy-webhook",

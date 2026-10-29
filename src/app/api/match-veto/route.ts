@@ -20,7 +20,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { match_id, map_id, action, is_timeout } = body;
 
-    const identityCheck = verifyRequestIdentity(request, body.steam_id);
+    const isPublicTimerAction = Boolean(body.is_timeout || body.action === 'ready_timeout');
+    const identityCheck = isPublicTimerAction ? { steamId: body.steam_id || 'timer', error: undefined } : verifyRequestIdentity(request, body.steam_id);
     if (identityCheck.error) {
       return NextResponse.json({ error: identityCheck.error }, { status: 403 });
     }
@@ -184,11 +185,13 @@ export async function POST(request: Request) {
           .upsert(activePlayersToRequeue, { onConflict: "steam_id" });
       }
 
-      // 3. Liberar el servidor de Miami
+      // 3. Liberar el servidor de Miami y disparar re-emparejamiento inmediato si hay 10+ en cola
       await supabase
         .from("game_servers")
         .update({ status: "free", current_match_id: null })
         .eq("current_match_id", match.id);
+
+      await supabase.rpc("try_matchmake_atomic");
 
       return NextResponse.json({
         ok: true,
@@ -294,10 +297,14 @@ export async function POST(request: Request) {
           status: newStatus,
         })
         .eq("id", match.id)
+        .eq("status", "veto")
+        .eq("turn_expires_at", match.turn_expires_at)
         .select()
-        .single();
+        .maybeSingle();
 
-      if (updErr) throw updErr; if (newStatus === "live") { await autoLoadMatchZyOnServer(updatedMatch.server_connect, updatedMatch.id).catch(() => {}); }
+      if (updErr || !updatedMatch) {
+        return NextResponse.json({ ok: false, already_advanced: true });
+      } if (newStatus === "live") { await autoLoadMatchZyOnServer(updatedMatch.server_connect, updatedMatch.id).catch(() => {}); }
       return NextResponse.json({ ok: true, auto_banned: randomMap, match: updatedMatch });
     }
 

@@ -308,16 +308,30 @@ export default function Home() {
     return () => stopWorker();
   }, [queueSearching, activeMatch, fetchCola]);
 
-  // 5. Refresco Ligero de Historial y Leaderboard en reposo (Cada 25s en vez de 2.5s -> 90% menos carga en DB)
+  // 5. Refresco Inteligente para 100 CCU: Se pausa si la pestaña esta minimizada detras de CS2 y refresca al hacer Alt+Tab
   useEffect(() => {
     const idleSync = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       fetchMatches();
       fetchLeaderboard();
       if (queueSearching && !activeMatch) {
         fetchCola();
       }
     }, 25000);
-    return () => clearInterval(idleSync);
+
+    const handleVisibility = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        fetchMatches();
+        fetchLeaderboard();
+        fetchCola();
+      }
+    };
+    window.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(idleSync);
+      window.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [fetchMatches, fetchLeaderboard, fetchCola, queueSearching, activeMatch]);
 
   // Anti-Fantasmas al cerrar pestaña
@@ -1102,7 +1116,7 @@ export default function Home() {
                         : { nick: "ESPERANDO...", elo: 0 }
                     )
                   ).map((p: any, idx: number) => {
-                    const style = getEloTierStyle(p.elo, 6);
+                    const style = getEloTierStyle(p.elo, p.elo > 0 ? 6 : 0);
                     return (
                       <div
                         key={idx}
@@ -1305,7 +1319,7 @@ export default function Home() {
                         : { nick: "ESPERANDO...", elo: 0 }
                     )
                   ).map((p: any, idx: number) => {
-                    const style = getEloTierStyle(p.elo, 6);
+                    const style = getEloTierStyle(p.elo, p.elo > 0 ? 6 : 0);
                     return (
                       <div
                         key={idx}

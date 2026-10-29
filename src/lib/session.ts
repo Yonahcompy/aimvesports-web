@@ -2,9 +2,14 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 export const SESSION_COOKIE_NAME = "aimve_session";
+const ADMIN_STEAM_IDS = ["76561199757155122", "76561199724566305"];
 
 function getSecret(): string {
-  return process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "aimve_hmac_secret_key_2026_shopysof";
+  return (
+    process.env.SESSION_SECRET ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "aimve_hmac_secret_key_2026_shopysof"
+  );
 }
 
 export function signSteamSession(steamId: string): string {
@@ -50,13 +55,29 @@ export function verifyRequestIdentity(
   claimedSteamId?: string | null
 ): { steamId: string | null; error?: string } {
   const claimed = claimedSteamId ? String(claimedSteamId).trim() : null;
+  const verifiedIds = readVerifiedSteamIdsFromRequest(request);
 
-  // Permitir bots de prueba (bot_1 .. bot_9)
+  // Permitir bots de prueba si vienen de localhost/PowerShell Admin secret o sesion de Admin
   if (claimed && claimed.startsWith("bot_")) {
+    const adminSecret = request.headers.get("x-aimve-secret");
+    const expectedSecret = process.env.MATCHZY_WEBHOOK_SECRET || "aimve_matchzy_secret_2026";
+    const isCallerAdmin = verifiedIds.some((id) => ADMIN_STEAM_IDS.includes(id));
+    const hostHeader = request.headers.get("host") || "";
+    const userAgent = request.headers.get("user-agent") || "";
+    const isPowerShellAdmin =
+      adminSecret === expectedSecret ||
+      isCallerAdmin ||
+      userAgent.includes("PowerShell") ||
+      hostHeader.includes("localhost");
+
+    if (!isPowerShellAdmin) {
+      return {
+        steamId: null,
+        error: "Solo un Administrador puede inyectar bots de prueba.",
+      };
+    }
     return { steamId: claimed };
   }
-
-  const verifiedIds = readVerifiedSteamIdsFromRequest(request);
 
   if (verifiedIds.length > 0) {
     if (claimed) {
@@ -71,7 +92,10 @@ export function verifyRequestIdentity(
     return { steamId: verifiedIds[0] };
   }
 
-  return { steamId: claimed };
+  return {
+    steamId: null,
+    error: "Sesion expirada o no verificada. Conecta tu cuenta con Steam nuevamente.",
+  };
 }
 
 export function attachSessionCookie(
