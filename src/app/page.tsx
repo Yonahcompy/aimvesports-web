@@ -54,6 +54,7 @@ export default function Home() {
   const [queueSearching, setQueueSearching] = useState(false);
   const [queuedPlayers, setQueuedPlayers] = useState<any[]>([]);
   const [queueCount, setQueueCount] = useState(0);
+  const [eloWindowDelta, setEloWindowDelta] = useState<number>(300);
   const [activeMatch, setActiveMatch] = useState<any>(null);
 
   const [bannedMaps, setBannedMaps] = useState<string[]>([]);
@@ -122,15 +123,24 @@ export default function Home() {
   }, []);
 
   const fetchCola = useCallback(async () => {
-    const { data } = await supabase
-      .from("matchmaking_queue")
-      .select("*")
-      .order("joined_at", { ascending: true });
-    if (data) {
-      setQueuedPlayers(data);
-      setQueueCount(data.length);
-    }
-  }, []);
+    try {
+      const res = await fetch("/api/queue");
+      const data = await res.json();
+      if (data) {
+        if (typeof data.window_delta === "number") {
+          setEloWindowDelta(data.window_delta);
+        }
+        if (Array.isArray(data.queue)) {
+          setQueuedPlayers(data.queue);
+          setQueueCount(data.queue.length);
+        }
+        if (data.status === "matched" && data.match && isPlayerInMatch(data.match, loggedSteamId)) {
+          setActiveMatch(data.match);
+          setQueueSearching(false);
+        }
+      }
+    } catch {}
+  }, [loggedSteamId]);
 
   // 1. Suscripcion Unica y Filtrada a Cola y Partidas Activas
   useEffect(() => {
@@ -286,6 +296,15 @@ export default function Home() {
 
     return () => clearInterval(interval);
   }, [activeMatch?.id, activeMatch?.status, loggedSteamId, fetchMatches, fetchLeaderboard, fetchCola]);
+
+    // 4B. Pulso de Ventana Expansiva de ELO (Solo corre cada 5s cuando el jugador esta buscando en cola)
+  useEffect(() => {
+    if (!queueSearching || activeMatch) return;
+    const qTimer = setInterval(() => {
+      fetchCola();
+    }, 5000);
+    return () => clearInterval(qTimer);
+  }, [queueSearching, activeMatch, fetchCola]);
 
   // 5. Refresco Ligero de Historial y Leaderboard en reposo (Cada 25s en vez de 2.5s -> 90% menos carga en DB)
   useEffect(() => {
@@ -1109,6 +1128,16 @@ export default function Home() {
                     </div>
                     <div className="text-3xl font-black text-white font-mono">
                       {queueCount} / 10
+                    </div>
+                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/40 text-[10px] font-mono font-bold text-[#66c0f4]">
+                      <span>
+                        FILTRO ELO: {eloWindowDelta >= 5000 ? " RANGO ABIERTO" : ` ±${eloWindowDelta} ELO`}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/40 text-[10px] font-mono font-bold text-[#66c0f4]">
+                      <span>
+                        FILTRO ELO: {eloWindowDelta >= 5000 ? " RANGO ABIERTO" : ` ±${eloWindowDelta} ELO`}
+                      </span>
                     </div>
                     <p className="text-[11px] text-[#8f98a0] mt-2 mb-3">
                       Aprovecha para avanzar tus misiones semanales en el Mapa de Practica.

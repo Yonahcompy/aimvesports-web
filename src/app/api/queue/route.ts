@@ -4,13 +4,59 @@ import { verifyRequestIdentity } from "@/lib/session";
 
 export async function GET() {
   try {
-    const { data, error } = await supabase
+    const { data: initialQueue, error } = await supabase
       .from("matchmaking_queue")
       .select("*")
       .order("joined_at", { ascending: true });
 
     if (error) throw error;
-    return NextResponse.json({ queue: data || [], count: (data || []).length });
+
+    // Si hay 10 o mas jugadores esperando en cola, verificar si la ventana de ELO ya se expandio
+    if (initialQueue && initialQueue.length >= 10) {
+      const { data: rpcResult } = await supabase.rpc("try_matchmake_atomic");
+      if (rpcResult?.status === "matched" && rpcResult?.match) {
+        const { data: postMatchQueue } = await supabase
+          .from("matchmaking_queue")
+          .select("*")
+          .order("joined_at", { ascending: true });
+
+        return NextResponse.json({
+          status: "matched",
+          match: rpcResult.match,
+          window_delta: rpcResult.window_delta || 300,
+          queue: postMatchQueue || [],
+          count: (postMatchQueue || []).length,
+        });
+      }
+
+      return NextResponse.json({
+        status: rpcResult?.status || "expanding_window",
+        window_delta: rpcResult?.window_delta || 300,
+        next_expansion_in: rpcResult?.next_expansion_in ?? null,
+        message: rpcResult?.message || null,
+        queue: initialQueue,
+        count: initialQueue.length,
+      });
+    }
+
+    // Calcular ventana del jugador mas antiguo si hay menos de 10 en cola
+    let currentDelta = 300;
+    if (initialQueue && initialQueue.length > 0 && initialQueue[0].joined_at) {
+      const waitSecs = Math.max(
+        0,
+        Math.floor((Date.now() - new Date(initialQueue[0].joined_at).getTime()) / 1000)
+      );
+      if (waitSecs >= 150) currentDelta = 5000;
+      else if (waitSecs >= 90) currentDelta = 1200;
+      else if (waitSecs >= 45) currentDelta = 600;
+    }
+
+    return NextResponse.json({
+      status: "queued",
+      window_delta: currentDelta,
+      queue: initialQueue || [],
+      count: (initialQueue || []).length,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -39,7 +85,6 @@ export async function POST(request: Request) {
     const elo = Number(body.elo) || 0;
     const country = body.country || "VE";
 
-    // Auto-registrar jugador real en leaderboard_players si es su primera vez
     if (!String(steamId).startsWith("bot_")) {
       const { data: existingPlayer } = await supabase
         .from("leaderboard_players")
@@ -81,7 +126,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // 1. Insertar o actualizar jugador en la cola
     const { error: upsertErr } = await supabase
       .from("matchmaking_queue")
       .upsert(
@@ -91,7 +135,6 @@ export async function POST(request: Request) {
 
     if (upsertErr) throw upsertErr;
 
-    // 2. Ejecutar emparejamiento atomico en PostgreSQL (FOR UPDATE SKIP LOCKED)
     const { data: rpcResult, error: rpcErr } = await supabase.rpc("try_matchmake_atomic");
     if (rpcErr) throw rpcErr;
 
@@ -104,22 +147,17 @@ export async function POST(request: Request) {
       return NextResponse.json({
         status: "matched",
         match: rpcResult.match,
-        queue: queueList || [],
-        count: (queueList || []).length,
-      });
-    }
-
-    if (rpcResult?.status === "waiting_server") {
-      return NextResponse.json({
-        status: "waiting_server",
-        message: rpcResult.message,
+        window_delta: rpcResult.window_delta || 300,
         queue: queueList || [],
         count: (queueList || []).length,
       });
     }
 
     return NextResponse.json({
-      status: "queued",
+      status: rpcResult?.status || "queued",
+      window_delta: rpcResult?.window_delta || 300,
+      next_expansion_in: rpcResult?.next_expansion_in ?? null,
+      message: rpcResult?.message || null,
       queue: queueList || [],
       count: (queueList || []).length,
     });
