@@ -52,16 +52,16 @@ export async function POST(request: Request) {
           ok: true,
           busy: false,
           launched: target.label,
-          port: orchData.port || 27016,
-          connectUrl: orchData.connectUrl || "steam://connect/207.246.79.56:27016",
+          port: orchData.port || 27025, waitMs: orchData.waitMs || 4000,
+          connectUrl: orchData.connectUrl || "steam://connect/207.246.79.56:27025",
         });
       } catch {
-        // Fallback directo por RCON a la Sala 1 (:27016) si el puerto HTTP 8085 no responde
+        // Fallback directo por RCON a la Sala 1 (:27025) si el puerto HTTP 8085 no responde
         const host = process.env.CS2_SERVER_HOST || "207.246.79.56";
         const rconPass = process.env.CS2_RCON_PASSWORD || "AimVe_Rcon_Miami_2026";
         await sendSourceRconCommand(
           host,
-          27016,
+          27025,
           rconPass,
           `host_workshop_map ${target.workshopId}`,
           2000
@@ -70,8 +70,8 @@ export async function POST(request: Request) {
           ok: true,
           busy: false,
           launched: target.label,
-          port: 27016,
-          connectUrl: "steam://connect/207.246.79.56:27016",
+          port: 27025,
+          connectUrl: "steam://connect/207.246.79.56:27025",
         });
       }
     }
