@@ -297,7 +297,7 @@ export async function POST(request: Request) {
         .select()
         .single();
 
-      if (updErr) throw updErr; if (newStatus === "live") { autoLoadMatchZyOnServer(updatedMatch.server_connect, updatedMatch.id).catch(() => {}); }
+      if (updErr) throw updErr; if (newStatus === "live") { await autoLoadMatchZyOnServer(updatedMatch.server_connect, updatedMatch.id).catch(() => {}); }
       return NextResponse.json({ ok: true, auto_banned: randomMap, match: updatedMatch });
     }
 
@@ -338,7 +338,7 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    if (updateErr) throw updateErr; if (newStatus === "live") { autoLoadMatchZyOnServer(updatedMatch.server_connect, updatedMatch.id).catch(() => {}); }
+    if (updateErr) throw updateErr; if (newStatus === "live") { await autoLoadMatchZyOnServer(updatedMatch.server_connect, updatedMatch.id).catch(() => {}); }
 
     return NextResponse.json({ ok: true, match: updatedMatch });
   } catch (err: any) {

@@ -24,6 +24,40 @@ function getDynamicSeasonPrize(index: number, totalGames: number, dbPrize: strin
   return "Clasificado Temporada 1";
 }
 
+function getNextRankProgress(elo: number, totalGames: number) {
+  if (totalGames < 6) {
+    return {
+      nextTier: "Fin de Calibracion",
+      needed: `${6 - totalGames} partidas mas`,
+      pct: Math.round((totalGames / 6) * 100),
+    };
+  }
+  const brackets = [
+    { name: "BRONCE ACTIVO", min: 25, target: 101 },
+    { name: "ZAFIRO", min: 101, target: 500 },
+    { name: "AMATISTA", min: 500, target: 1000 },
+    { name: "FENIX CARMESI", min: 1000, target: 2000 },
+    { name: "ORO IMPERIAL", min: 2000, target: 3500 },
+    { name: "LEYENDA 5K+", min: 3500, target: 5000 },
+  ];
+  for (const b of brackets) {
+    if (elo < b.target) {
+      const span = Math.max(1, b.target - b.min);
+      const currentInSpan = Math.max(0, elo - b.min);
+      return {
+        nextTier: b.name,
+        needed: `Faltan ${b.target - elo} ELO para ${b.name} (${b.target} ELO)`,
+        pct: Math.min(99, Math.round((currentInSpan / span) * 100)),
+      };
+    }
+  }
+  return {
+    nextTier: "RANGO MAXIMO ALCANZADO",
+    needed: "Cima del Circuito LATAM (5,000+ ELO)",
+    pct: 100,
+  };
+}
+
 export default React.memo(function LeaderboardSection({
   leaderboard,
   loggedSteamId,
@@ -34,6 +68,10 @@ export default React.memo(function LeaderboardSection({
   const [banReason, setBanReason] = useState("Aimbot / Wallhack confirmado en Demo GOTV");
   const [rollbackMsg, setRollbackMsg] = useState<string | null>(null);
   const [processingBan, setProcessingBan] = useState(false);
+  const [selectedProfile, setSelectedProfile] = useState<{
+    player: LeaderboardPlayer;
+    rankIndex: number;
+  } | null>(null);
 
   const activeLeaderboard = leaderboard.filter((p: any) => !p.is_banned);
 
@@ -80,11 +118,10 @@ export default React.memo(function LeaderboardSection({
           </h2>
         </div>
         <span className="text-xs font-bold px-3 py-1.5 bg-[#FF5500]/15 text-[#FF5500] border border-[#FF5500]/40 rounded-sm mt-2 md:mt-0">
-          MVP EN DERROTA SOLO PIERDE -6 ELO (AMORTIGUADOR DE IMPACTO ACTIVO)
+          HAZ CLIC EN CUALQUIER JUGADOR PARA VER SU FICHA PRO (PLAYER CARD)
         </span>
       </div>
 
-      {/* PANEL DE JUSTICIA ANTI-CHEAT Y ELO ROLLBACK (SOLO VISIBLE PARA ADMIN) */}
       {isAdmin && (
         <div className="mb-6 p-4 rounded-sm bg-[#171a21] border border-red-500/60 shadow-lg">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-3">
@@ -206,13 +243,14 @@ export default React.memo(function LeaderboardSection({
               return (
                 <tr
                   key={player.id}
-                  className={
+                  onClick={() => setSelectedProfile({ player, rankIndex: index })}
+                  className={`cursor-pointer transition hover:bg-[#2a475e]/35 ${
                     isMe
                       ? "bg-gradient-to-r from-[#a4d007]/20 via-[#1b2838] to-transparent"
                       : index === 0
                       ? "bg-gradient-to-r from-[#FF5500]/15 to-transparent"
                       : ""
-                  }
+                  }`}
                 >
                   <td
                     className={`py-4 px-5 font-black ${
@@ -226,7 +264,9 @@ export default React.memo(function LeaderboardSection({
                     #{index + 1}
                   </td>
                   <td className="py-4 px-5 font-bold text-white">
-                    {player.nickname}{" "}
+                    <span className="hover:text-[#66c0f4] underline decoration-[#2a475e] underline-offset-4">
+                      {player.nickname}
+                    </span>{" "}
                     <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-[#171a21] border border-[#2a475e] text-[#66c0f4]">
                       {player.country}
                     </span>
@@ -294,6 +334,151 @@ export default React.memo(function LeaderboardSection({
           </tbody>
         </table>
       </div>
+
+      {/* MODAL DE FICHA COMPETITIVA DEL JUGADOR (PLAYER CARD ESTILO FACEIT) */}
+      {selectedProfile && (() => {
+        const p = selectedProfile.player;
+        const idx = selectedProfile.rankIndex;
+        const totalGames = (p.wins || 0) + (p.losses || 0);
+        const winrate = totalGames > 0 ? Math.round((p.wins / totalGames) * 100) : 0;
+        const tier = getEloTierStyle(p.elo, totalGames);
+        const progress = getNextRankProgress(p.elo, totalGames);
+
+        const kills = Number(p.kills || 0);
+        const deaths = Number(p.deaths || 0);
+        const headshots = Number(p.headshots || 0);
+        const totalDmg = Number(p.total_damage || 0);
+        const roundsPlayed = Number(p.rounds_played || 0);
+        const mvpCount = Number(p.mvp_count || 0);
+
+        const kdRatio =
+          deaths > 0 ? (kills / deaths).toFixed(2) : kills > 0 ? kills.toFixed(2) : "1.00";
+        const adr = roundsPlayed > 0 ? Math.round(totalDmg / roundsPlayed) : 0;
+        const hsPct = kills > 0 ? Math.round((headshots / kills) * 100) : 0;
+        const prize = getDynamicSeasonPrize(idx, totalGames, p.season_prize);
+
+        return (
+          <div
+            onClick={() => setSelectedProfile(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#171a21] border border-[#66c0f4]/60 rounded-sm max-w-lg w-full p-6 relative shadow-2xl"
+            >
+              <button
+                onClick={() => setSelectedProfile(null)}
+                className="absolute top-4 right-4 text-[#8f98a0] hover:text-white text-sm font-black cursor-pointer"
+              >
+                X
+              </button>
+
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#a4d007] mb-1">
+                <span>✓ STEAM TRUST GATE VERIFICADO</span>
+                <span>•</span>
+                <span className="text-[#66c0f4]">POSICION GLOBAL #{idx + 1}</span>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#2a475e]">
+                <div>
+                  <h3 className="text-2xl font-black text-white flex items-center gap-2">
+                    <span>{p.nickname}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-sm bg-[#1b2838] border border-[#2a475e] text-[#66c0f4]">
+                      {p.country}
+                    </span>
+                  </h3>
+                  {p.steam_id && (
+                    <a
+                      href={`https://steamcommunity.com/profiles/${p.steam_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-[#8f98a0] hover:text-[#66c0f4] font-mono underline mt-0.5 inline-block"
+                    >
+                      SteamID64: {p.steam_id} ↗
+                    </a>
+                  )}
+                </div>
+
+                <div className="text-right">
+                  <div className={`font-mono text-2xl font-black ${tier.textClass}`}>
+                    {totalGames < 6 ? "CALIBRANDO" : `${p.elo} ELO`}
+                  </div>
+                  <span
+                    className={`inline-block mt-1 text-[10px] px-2.5 py-0.5 rounded-sm font-black uppercase ${tier.badgeClass}`}
+                  >
+                    {tier.tierName}
+                  </span>
+                </div>
+              </div>
+
+              {/* Barra de Progreso al Siguiente Rango */}
+              <div className="my-4 p-3 rounded-sm bg-[#111318] border border-[#2a475e]">
+                <div className="flex items-center justify-between text-[11px] font-bold mb-1.5">
+                  <span className="text-[#c7d5e0]">{progress.needed}</span>
+                  <span className="text-[#66c0f4] font-mono">{progress.pct}%</span>
+                </div>
+                <div className="w-full h-2 bg-[#171a21] rounded-sm overflow-hidden border border-[#2a475e]/60">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#66c0f4] to-[#a4d007]"
+                    style={{ width: `${progress.pct}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Cuadricula de 6 Estadisticas de Combate */}
+              <div className="grid grid-cols-3 gap-2.5 my-4">
+                <div className="p-3 rounded-sm bg-[#1b2838]/70 border border-[#2a475e] text-center">
+                  <div className="text-[10px] font-bold text-[#8f98a0] uppercase">K/D RATIO</div>
+                  <div className="text-lg font-mono font-black text-white mt-0.5">{kdRatio}</div>
+                  <div className="text-[10px] text-[#8f98a0]">
+                    {kills}K / {deaths}D
+                  </div>
+                </div>
+                <div className="p-3 rounded-sm bg-[#1b2838]/70 border border-[#2a475e] text-center">
+                  <div className="text-[10px] font-bold text-[#8f98a0] uppercase">DAÑO MEDIO</div>
+                  <div className="text-lg font-mono font-black text-[#66c0f4] mt-0.5">
+                    {adr} ADR
+                  </div>
+                  <div className="text-[10px] text-[#8f98a0]">{roundsPlayed} Rondas</div>
+                </div>
+                <div className="p-3 rounded-sm bg-[#1b2838]/70 border border-[#2a475e] text-center">
+                  <div className="text-[10px] font-bold text-[#8f98a0] uppercase">HEADSHOTS</div>
+                  <div className="text-lg font-mono font-black text-[#a4d007] mt-0.5">{hsPct}%</div>
+                  <div className="text-[10px] text-[#8f98a0]">{headshots} HS</div>
+                </div>
+                <div className="p-3 rounded-sm bg-[#1b2838]/70 border border-[#2a475e] text-center">
+                  <div className="text-[10px] font-bold text-[#8f98a0] uppercase">WINRATE</div>
+                  <div className="text-lg font-mono font-black text-white mt-0.5">{winrate}%</div>
+                  <div className="text-[10px] text-[#8f98a0]">
+                    {p.wins}W - {p.losses}L
+                  </div>
+                </div>
+                <div className="p-3 rounded-sm bg-[#1b2838]/70 border border-[#2a475e] text-center">
+                  <div className="text-[10px] font-bold text-[#8f98a0] uppercase">ESTRELLAS MVP</div>
+                  <div className="text-lg font-mono font-black text-yellow-300 mt-0.5">
+                    ★ {mvpCount}
+                  </div>
+                  <div className="text-[10px] text-[#8f98a0]">Impacto Pro</div>
+                </div>
+                <div className="p-3 rounded-sm bg-[#1b2838]/70 border border-[#2a475e] text-center">
+                  <div className="text-[10px] font-bold text-[#8f98a0] uppercase">PREMIO ACTUAL</div>
+                  <div className="text-[11px] font-black text-[#FF5500] mt-1 leading-tight">
+                    {prize}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedProfile(null)}
+                className="w-full py-2.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white font-black text-xs uppercase tracking-wider transition cursor-pointer"
+              >
+                Cerrar Ficha Competitiva
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 });

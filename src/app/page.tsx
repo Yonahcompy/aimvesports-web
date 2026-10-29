@@ -377,17 +377,7 @@ export default function Home() {
     };
     localStorage.setItem(storageKey, JSON.stringify(stateToSave));
 
-    if (currentPlayerProfile?.id) {
-      supabase
-        .from("leaderboard_players")
-        .update({
-          mission_data: stateToSave,
-          elo_shield: eloShieldActive,
-          hot_hand_bonus: hotHandBonus,
-        })
-        .eq("id", currentPlayerProfile.id)
-        .then(() => {});
-    }
+    // Escritura de misiones delegada exclusivamente a endpoints verificados del backend
   }, [missions, eloShieldActive, hotHandBonus, weekExpiresAt, missionsHydrated, loggedSteamId, currentPlayerProfile?.id]);
 
   // Login inicial de Steam

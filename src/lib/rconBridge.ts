@@ -1,7 +1,34 @@
 import net from "net";
+import crypto from "crypto";
 
 const SERVERDATA_AUTH = 3;
 const SERVERDATA_EXECCOMMAND = 2;
+
+function getConfigSecret(): string {
+  return (
+    process.env.MATCHZY_WEBHOOK_SECRET ||
+    process.env.SESSION_SECRET ||
+    "aimve_matchzy_secret_2026"
+  );
+}
+
+export function signMatchConfigToken(matchId: number | string): string {
+  return crypto
+    .createHmac("sha256", getConfigSecret())
+    .update(`match_cfg_${String(matchId)}`)
+    .digest("hex")
+    .slice(0, 24);
+}
+
+export function verifyMatchConfigToken(
+  matchId: number | string,
+  token?: string | null
+): boolean {
+  if (!token) return false;
+  const expected = signMatchConfigToken(matchId);
+  if (token.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+}
 
 function createRconPacket(id: number, type: number, body: string): Buffer {
   const bodyBuf = Buffer.from(body, "utf8");
@@ -63,7 +90,6 @@ export function sendSourceRconCommand(
   });
 }
 
-// 3.2A: Avisar dentro de los servidores de Practica (:27016, :27017, :27018) que la partida 10/10 esta lista
 export async function broadcastMatchFoundToWarmupServers(playerNicknames: string[]) {
   const rconPassword = process.env.CS2_RCON_PASSWORD || "";
   const warmupHost = process.env.CS2_SERVER_HOST || "miami1.aimvesports.com";
@@ -80,7 +106,6 @@ export async function broadcastMatchFoundToWarmupServers(playerNicknames: string
   );
 }
 
-// 3.2B: Ordenar a MatchZy en Miami que cargue el JSON de la partida apenas termina el Veto (6 mapas baneados)
 export async function autoLoadMatchZyOnServer(serverConnect: string, matchId: number) {
   const rconPassword = process.env.CS2_RCON_PASSWORD || "";
   if (!rconPassword) return;
@@ -93,7 +118,8 @@ export async function autoLoadMatchZyOnServer(serverConnect: string, matchId: nu
   const port = Number(portPart) || 27025;
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.aimvesports.com";
-  const configUrl = `${siteUrl}/api/match-config?match_id=${matchId}`;
+  const sig = signMatchConfigToken(matchId);
+  const configUrl = `${siteUrl}/api/match-config?match_id=${matchId}&sig=${sig}`;
   const rconCmd = `matchzy_load_match_url "${configUrl}"`;
 
   await sendSourceRconCommand(host, port, rconPassword, rconCmd, 1200);

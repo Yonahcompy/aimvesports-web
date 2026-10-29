@@ -22,7 +22,7 @@ export async function GET() {
         ...(mObj.team_alpha || []).map((p: any) => p.nickname),
         ...(mObj.team_omega || []).map((p: any) => p.nickname),
       ];
-      broadcastMatchFoundToWarmupServers(allNicks).catch(() => {});
+      await broadcastMatchFoundToWarmupServers(allNicks).catch(() => {});
         const { data: postMatchQueue } = await supabase
           .from("matchmaking_queue")
           .select("*")
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
         ...(mObj.team_alpha || []).map((p: any) => p.nickname),
         ...(mObj.team_omega || []).map((p: any) => p.nickname),
       ];
-      broadcastMatchFoundToWarmupServers(allNicks).catch(() => {});
+      await broadcastMatchFoundToWarmupServers(allNicks).catch(() => {});
       return NextResponse.json({
         status: "matched",
         match: rpcResult.match,
