@@ -104,17 +104,21 @@ export default React.memo(function PracticeMissionsSection({
         setMissionBanner(null);
         setServerBusyAlert(
           data?.message ||
-            "SERVIDORES DE PRACTICA OCUPADOS: Todas las salas individuales están en uso en este momento. Intenta en unos minutos."
+            "SERVIDORES DE PRACTICA OCUPADOS: Todas las salas individuales estÃ¡n en uso en este momento. Intenta en unos minutos."
         );
         fetchLivePracticeState();
         return;
       }
 
-      const connectUrl = data?.connectUrl || "steam://connect/207.246.79.56:27016";
       const assignedPort = data?.port || 27016;
+      const consoleCmd = `connect 207.246.79.56:${assignedPort}`;
+      const connectUrl = `steam://run/730//+connect%20207.246.79.56:${assignedPort}`;
+      try {
+        await navigator.clipboard.writeText(consoleCmd);
+      } catch {}
 
       setMissionBanner(
-        `Sala asignada en Miami (Puerto :${assignedPort}) con ${modeName}. Abriendo CS2 en 4 segundos...`
+        `Sala lista en Miami (:${assignedPort}) con ${modeName}. Comando "${consoleCmd}" copiado al portapapeles (pegalo en consola ~ si ya tienes CS2 abierto).`
       );
       setTimeout(() => {
         setLaunchingMode(null);
@@ -160,8 +164,8 @@ export default React.memo(function PracticeMissionsSection({
               MAPA DE PRACTICA &amp; MISIONES SEMANALES
             </h2>
             <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-              Entrena en tu propia sala privada sin interrumpir a otros jugadores. El progreso se audita en vivo desde los logs del servidor en Miami y se actualiza automáticamente al hacer{" "}
-              <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misión al cierre de los{" "}
+              Entrena en tu propia sala privada sin interrumpir a otros jugadores. El progreso se audita en vivo desde los logs del servidor en Miami y se actualiza automÃ¡ticamente al hacer{" "}
+              <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misiÃ³n al cierre de los{" "}
               <span className="text-white font-bold">7 dias</span> descuenta{" "}
               <span className="text-red-400 font-bold">-13 ELO</span>.
             </p>
@@ -189,7 +193,7 @@ export default React.memo(function PracticeMissionsSection({
 
         {serverBusyAlert && (
           <div className="mt-4 p-3.5 rounded-sm bg-red-950/90 border border-red-500 text-xs text-red-200 font-bold flex items-center justify-between">
-            <span>⚠️ {serverBusyAlert}</span>
+            <span>âš ï¸ {serverBusyAlert}</span>
             <button
               type="button"
               onClick={() => setServerBusyAlert(null)}
