@@ -1,3 +1,4 @@
+import { broadcastMatchFoundToWarmupServers } from "@/lib/rconBridge";
 import { verifySteamTrustGate } from "@/lib/steamTrust";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
@@ -16,6 +17,12 @@ export async function GET() {
     if (initialQueue && initialQueue.length >= 10) {
       const { data: rpcResult } = await supabase.rpc("try_matchmake_atomic");
       if (rpcResult?.status === "matched" && rpcResult?.match) {
+      const mObj = rpcResult.match;
+      const allNicks = [
+        ...(mObj.team_alpha || []).map((p: any) => p.nickname),
+        ...(mObj.team_omega || []).map((p: any) => p.nickname),
+      ];
+      broadcastMatchFoundToWarmupServers(allNicks).catch(() => {});
         const { data: postMatchQueue } = await supabase
           .from("matchmaking_queue")
           .select("*")
@@ -164,6 +171,12 @@ export async function POST(request: Request) {
       .order("joined_at", { ascending: true });
 
     if (rpcResult?.status === "matched" && rpcResult?.match) {
+      const mObj = rpcResult.match;
+      const allNicks = [
+        ...(mObj.team_alpha || []).map((p: any) => p.nickname),
+        ...(mObj.team_omega || []).map((p: any) => p.nickname),
+      ];
+      broadcastMatchFoundToWarmupServers(allNicks).catch(() => {});
       return NextResponse.json({
         status: "matched",
         match: rpcResult.match,

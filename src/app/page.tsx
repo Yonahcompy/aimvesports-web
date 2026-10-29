@@ -17,6 +17,7 @@ import {
 import PracticeMissionsSection from "@/components/PracticeMissionsSection";
 import RecentMatchesSection from "@/components/RecentMatchesSection";
 import LeaderboardSection from "@/components/LeaderboardSection";
+import { unlockAudioAndNotifications, playCompetitiveChime, sendNativeMatchNotification, createBackgroundWorkerTimer } from "@/lib/antiThrottle";
 
 function isPlayerInMatch(matchObj: any, steamId: string | null): boolean {
   if (!matchObj || !steamId) return false;
@@ -206,7 +207,8 @@ export default function Home() {
 
       const { data: qData } = await supabase.from("matchmaking_queue").select("*");
       if (qData && qData.some((p: any) => String(p.steam_id) === String(loggedSteamId))) {
-        setQueueSearching(true);
+        unlockAudioAndNotifications().catch(() => {});
+    setQueueSearching(true);
       }
     };
     restoreState();
@@ -297,13 +299,13 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [activeMatch?.id, activeMatch?.status, loggedSteamId, fetchMatches, fetchLeaderboard, fetchCola]);
 
-    // 4B. Pulso de Ventana Expansiva de ELO (Solo corre cada 5s cuando el jugador esta buscando en cola)
+    // 4B. Pulso Anti-Hibernacion por Web Worker (Sigue corriendo aunque el navegador este minimizado detras de CS2)
   useEffect(() => {
     if (!queueSearching || activeMatch) return;
-    const qTimer = setInterval(() => {
+    const stopWorker = createBackgroundWorkerTimer(() => {
       fetchCola();
-    }, 5000);
-    return () => clearInterval(qTimer);
+    }, 4000);
+    return () => stopWorker();
   }, [queueSearching, activeMatch, fetchCola]);
 
   // 5. Refresco Ligero de Historial y Leaderboard en reposo (Cada 25s en vez de 2.5s -> 90% menos carga en DB)
@@ -579,6 +581,7 @@ export default function Home() {
       setMissionBanner("Debes conectar tu cuenta de Steam arriba a la derecha antes de entrar a la cola.");
       return;
     }
+    unlockAudioAndNotifications().catch(() => {});
     setQueueSearching(true);
     setBannedMaps([]);
     setTimeLeft(15);
@@ -646,29 +649,48 @@ export default function Home() {
     return () => clearInterval(t);
   }, [activeMatch]);
 
-  // Alerta Sonora Competitiva en Ready Check
+  // Fase 3.1: Alerta Sonora Persistente + Notificacion Nativa de Windows + Parpadeo de Pestaña en Segundo Plano
   useEffect(() => {
-    if (activeMatch?.status === "ready_check") {
-      try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtx) {
-          const ctx = new AudioCtx();
-          [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = "triangle";
-            osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.14);
-            gain.gain.setValueAtTime(0.22, ctx.currentTime + idx * 0.14);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.14 + 0.35);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(ctx.currentTime + idx * 0.14);
-            osc.stop(ctx.currentTime + idx * 0.14 + 0.35);
-          });
-        }
-      } catch {}
+    if (activeMatch?.status !== "ready_check") {
+      if (typeof document !== "undefined") {
+        document.title = "AimVe Sports | CS2 LATAM Circuit";
+      }
+      return;
     }
-  }, [activeMatch?.id, activeMatch?.status]);
+
+    const alreadyAccepted =
+      Array.isArray(activeMatch?.accepted_players) &&
+      activeMatch.accepted_players.map(String).includes(String(loggedSteamId));
+
+    if (alreadyAccepted) {
+      if (typeof document !== "undefined") {
+        document.title = "✓ Partida Aceptada — AimVe Sports";
+      }
+      return;
+    }
+
+    // Disparar primera alerta sonora y notificacion de escritorio de Windows al instante
+    playCompetitiveChime();
+    sendNativeMatchNotification(activeMatch.id, activeMatch.server_connect);
+
+    let toggleTitle = false;
+    const stopAlarmWorker = createBackgroundWorkerTimer(() => {
+      playCompetitiveChime();
+      if (typeof document !== "undefined") {
+        toggleTitle = !toggleTitle;
+        document.title = toggleTitle
+          ? "⚠️ ¡ACEPTA LA PARTIDA! (10/10)"
+          : "🔊 PARTIDA ENCONTRADA — AIMVE";
+      }
+    }, 3500);
+
+    return () => {
+      stopAlarmWorker();
+      if (typeof document !== "undefined") {
+        document.title = "AimVe Sports | CS2 LATAM Circuit";
+      }
+    };
+  }, [activeMatch?.id, activeMatch?.status, activeMatch?.accepted_players, activeMatch?.server_connect, loggedSteamId]);
 
   const handleAcceptMatch = async () => {
     if (!activeMatch?.id || !loggedSteamId) return;
