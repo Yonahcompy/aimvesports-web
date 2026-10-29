@@ -1527,7 +1527,7 @@ export default function Home() {
         <RecentMatchesSection matches={matches} />
 
         {/* COMPONENTE MODULAR 3: LEADERBOARD TOP ELO */}
-        <LeaderboardSection leaderboard={leaderboard} loggedSteamId={loggedSteamId} />
+        <LeaderboardSection leaderboard={leaderboard} loggedSteamId={loggedSteamId} isAdmin={isAdmin} onRefresh={() => { fetchLeaderboard(); fetchMatches(); }} />
       </main>
 
       <footer className="border-t border-[#2a475e]/60 bg-[#111318] py-8 text-center text-xs text-[#8f98a0]">

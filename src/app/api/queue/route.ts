@@ -1,3 +1,4 @@
+import { verifySteamTrustGate } from "@/lib/steamTrust";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { verifyRequestIdentity } from "@/lib/session";
@@ -88,10 +89,29 @@ export async function POST(request: Request) {
     if (!String(steamId).startsWith("bot_")) {
       const { data: existingPlayer } = await supabase
         .from("leaderboard_players")
-        .select("id, steam_id, cooldown_until")
+        .select("id, steam_id, cooldown_until, is_banned, ban_reason")
         .or(`steam_id.eq.${steamId},nickname.eq.${nickname}`)
         .limit(1)
         .maybeSingle();
+
+            if (existingPlayer?.is_banned) {
+        return NextResponse.json(
+          {
+            error: `Cuenta Suspendida por Anti-Cheat: ${existingPlayer.ban_reason || "Infraccion competitiva"}.`,
+          },
+          { status: 403 }
+        );
+      }
+
+      const trustCheck = await verifySteamTrustGate(String(steamId));
+      if (!trustCheck.allowed) {
+        return NextResponse.json(
+          {
+            error: trustCheck.reason || "No cumples los requisitos de Steam Trust Gate.",
+          },
+          { status: 403 }
+        );
+      }
 
       if (existingPlayer?.cooldown_until) {
         const cdTime = new Date(existingPlayer.cooldown_until).getTime();

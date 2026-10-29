@@ -1,14 +1,73 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { LeaderboardPlayer, getEloTierStyle } from "@/lib/ranks";
 
 interface Props {
   leaderboard: LeaderboardPlayer[];
   loggedSteamId: string | null;
+  isAdmin?: boolean;
+  onRefresh?: () => void;
 }
 
-export default React.memo(function LeaderboardSection({ leaderboard, loggedSteamId }: Props) {
+function getDynamicSeasonPrize(index: number, totalGames: number, dbPrize: string): string {
+  if (totalGames < 6) {
+    return `En Calibracion (${totalGames}/6)`;
+  }
+  if (dbPrize && !dbPrize.startsWith("En Calibracion")) {
+    return dbPrize;
+  }
+  if (index === 0) return "AK-47 | Asiimov + $50 Pool";
+  if (index === 1) return "M4A1-S | Printstream + $30";
+  if (index === 2) return "AWP | Redline + $20";
+  if (index < 10) return "Pase Sorteo Skins Top 10";
+  return "Clasificado Temporada 1";
+}
+
+export default React.memo(function LeaderboardSection({
+  leaderboard,
+  loggedSteamId,
+  isAdmin = false,
+  onRefresh,
+}: Props) {
+  const [banTarget, setBanTarget] = useState("");
+  const [banReason, setBanReason] = useState("Aimbot / Wallhack confirmado en Demo GOTV");
+  const [rollbackMsg, setRollbackMsg] = useState<string | null>(null);
+  const [processingBan, setProcessingBan] = useState(false);
+
+  const activeLeaderboard = leaderboard.filter((p: any) => !p.is_banned);
+
+  const handleExecuteRollback = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!banTarget.trim() || processingBan) return;
+    setProcessingBan(true);
+    setRollbackMsg(null);
+
+    try {
+      const res = await fetch("/api/admin/ban-rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          admin_steam_id: loggedSteamId,
+          target_identifier: banTarget.trim(),
+          reason: banReason.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        setRollbackMsg(data.message);
+        setBanTarget("");
+        if (onRefresh) onRefresh();
+      } else {
+        setRollbackMsg(data?.error || "Error al ejecutar el Rollback.");
+      }
+    } catch {
+      setRollbackMsg("Error de red al conectar con /api/admin/ban-rollback.");
+    } finally {
+      setProcessingBan(false);
+    }
+  };
+
   return (
     <section id="premios" className="mt-24 text-left">
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-6">
@@ -24,6 +83,55 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
           MVP EN DERROTA SOLO PIERDE -6 ELO (AMORTIGUADOR DE IMPACTO ACTIVO)
         </span>
       </div>
+
+      {/* PANEL DE JUSTICIA ANTI-CHEAT Y ELO ROLLBACK (SOLO VISIBLE PARA ADMIN) */}
+      {isAdmin && (
+        <div className="mb-6 p-4 rounded-sm bg-[#171a21] border border-red-500/60 shadow-lg">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-3">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-sm bg-red-600 text-white mr-2">
+                ADMIN ANTI-CHEAT
+              </span>
+              <span className="text-xs font-black text-white uppercase">
+                SISTEMA DE BANEO &amp; ELO ROLLBACK AUTOMATICO (ULTIMOS 7 DIAS)
+              </span>
+            </div>
+            <span className="text-[11px] text-[#8f98a0]">
+              Devuelve +18 ELO automaticamente a las victimas que perdieron contra el infractor.
+            </span>
+          </div>
+
+          <form onSubmit={handleExecuteRollback} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input
+              type="text"
+              value={banTarget}
+              onChange={(e) => setBanTarget(e.target.value)}
+              placeholder="SteamID64 o Nickname a banear..."
+              className="px-3 py-2 bg-[#111318] border border-[#2a475e] rounded-sm text-xs text-white focus:outline-none focus:border-red-500"
+            />
+            <input
+              type="text"
+              value={banReason}
+              onChange={(e) => setBanReason(e.target.value)}
+              placeholder="Motivo del baneo (Demo GOTV)..."
+              className="px-3 py-2 bg-[#111318] border border-[#2a475e] rounded-sm text-xs text-white focus:outline-none focus:border-red-500"
+            />
+            <button
+              type="submit"
+              disabled={processingBan}
+              className="px-4 py-2 rounded-sm bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider transition cursor-pointer"
+            >
+              {processingBan ? "REVIRTIENDO PARTIDAS..." : "BANEAR Y DEVOLVER ELO (ROLLBACK)"}
+            </button>
+          </form>
+
+          {rollbackMsg && (
+            <div className="mt-3 p-2.5 rounded-sm bg-[#111318] border border-[#a4d007] text-xs text-[#a4d007] font-bold">
+              {rollbackMsg}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 mb-6 p-4 rounded-sm bg-[#111318] border border-[#2a475e]">
         <div className="p-2.5 rounded-sm bg-[#171a21] border border-dashed border-[#8f98a0]/50 text-center">
@@ -76,7 +184,7 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
             </tr>
           </thead>
           <tbody className="divide-y divide-[#2a475e]/40">
-            {leaderboard.map((player, index) => {
+            {activeLeaderboard.map((player, index) => {
               const totalGames = player.wins + player.losses;
               const winrate = totalGames > 0 ? Math.round((player.wins / totalGames) * 100) : 0;
               const isMe = Boolean(loggedSteamId && player.steam_id === loggedSteamId);
@@ -93,6 +201,7 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
                 deaths > 0 ? (kills / deaths).toFixed(2) : kills > 0 ? kills.toFixed(2) : "1.00";
               const adr = roundsPlayed > 0 ? Math.round(totalDmg / roundsPlayed) : 0;
               const hsPct = kills > 0 ? Math.round((headshots / kills) * 100) : 0;
+              const prizeLabel = getDynamicSeasonPrize(index, totalGames, player.season_prize);
 
               return (
                 <tr
@@ -168,10 +277,16 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
                   </td>
                   <td
                     className={`py-4 px-5 text-right font-bold ${
-                      index === 0 ? "text-[#FF5500]" : "text-white"
+                      index === 0
+                        ? "text-[#FF5500]"
+                        : index === 1
+                        ? "text-[#66c0f4]"
+                        : index === 2
+                        ? "text-[#a4d007]"
+                        : "text-white"
                     }`}
                   >
-                    {player.season_prize}
+                    {prizeLabel}
                   </td>
                 </tr>
               );

@@ -232,6 +232,8 @@ export async function POST(request: Request) {
         status: matchStatusLabel,
         winner: winnerTeam,
         mvp_nickname: matchMvp?.nickname || null,
+        winner_steam_ids: winnerStatsList.map((p) => p.steam_id),
+        loser_steam_ids: loserStatsList.map((p) => p.steam_id),
       },
     ]);
 
