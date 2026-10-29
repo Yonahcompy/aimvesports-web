@@ -14,14 +14,14 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-6">
         <div>
           <div className="text-[#FF5500] text-xs font-black uppercase tracking-widest mb-1">
-            PROGRESION DE RANGOS &amp; BRILLO ELO | TEMPORADA FUNDADORES
+            PROGRESION DE RANGOS, K/D, ADR &amp; AMORTIGUADOR MVP | TEMPORADA FUNDADORES
           </div>
           <h2 className="text-3xl font-black text-white">
-            LEADERBOARD TOP ELO &amp; RECOMPENSAS
+            LEADERBOARD TOP ELO &amp; ESTADISTICAS PRO
           </h2>
         </div>
         <span className="text-xs font-bold px-3 py-1.5 bg-[#FF5500]/15 text-[#FF5500] border border-[#FF5500]/40 rounded-sm mt-2 md:mt-0">
-          6 PARTIDAS CALIBRAN TU ELO INICIAL (25 A 100 ELO)
+          MVP EN DERROTA SOLO PIERDE -6 ELO (AMORTIGUADOR DE IMPACTO ACTIVO)
         </span>
       </div>
 
@@ -70,8 +70,8 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
               <th className="py-3.5 px-5">Posicion</th>
               <th className="py-3.5 px-5">Jugador</th>
               <th className="py-3.5 px-5">Rango &amp; Brillo ELO</th>
-              <th className="py-3.5 px-5">Partidas (6 Calibran)</th>
-              <th className="py-3.5 px-5">Winrate</th>
+              <th className="py-3.5 px-5">K/D | ADR | HS%</th>
+              <th className="py-3.5 px-5">Partidas &amp; Winrate</th>
               <th className="py-3.5 px-5 text-right">Premio de Temporada</th>
             </tr>
           </thead>
@@ -81,6 +81,18 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
               const winrate = totalGames > 0 ? Math.round((player.wins / totalGames) * 100) : 0;
               const isMe = Boolean(loggedSteamId && player.steam_id === loggedSteamId);
               const tier = getEloTierStyle(player.elo, totalGames);
+
+              const kills = Number(player.kills || 0);
+              const deaths = Number(player.deaths || 0);
+              const headshots = Number(player.headshots || 0);
+              const totalDmg = Number(player.total_damage || 0);
+              const roundsPlayed = Number(player.rounds_played || 0);
+              const mvpCount = Number(player.mvp_count || 0);
+
+              const kdRatio =
+                deaths > 0 ? (kills / deaths).toFixed(2) : kills > 0 ? kills.toFixed(2) : "1.00";
+              const adr = roundsPlayed > 0 ? Math.round(totalDmg / roundsPlayed) : 0;
+              const hsPct = kills > 0 ? Math.round((headshots / kills) * 100) : 0;
 
               return (
                 <tr
@@ -109,6 +121,11 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
                     <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-[#171a21] border border-[#2a475e] text-[#66c0f4]">
                       {player.country}
                     </span>
+                    {mvpCount > 0 && (
+                      <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-sm bg-yellow-500/20 border border-yellow-400/50 text-yellow-300 font-black">
+                        ★ {mvpCount} MVP
+                      </span>
+                    )}
                     {isMe && (
                       <span className="ml-2 text-[10px] px-2 py-0.5 rounded-sm bg-[#a4d007] text-[#171a21] font-black uppercase">
                         TU PERFIL
@@ -127,14 +144,28 @@ export default React.memo(function LeaderboardSection({ leaderboard, loggedSteam
                       </span>
                     </div>
                   </td>
+                  <td className="py-4 px-5 font-mono text-xs">
+                    <span
+                      className={`font-black ${
+                        Number(kdRatio) >= 1.15
+                          ? "text-[#a4d007]"
+                          : Number(kdRatio) < 0.9
+                          ? "text-red-400"
+                          : "text-white"
+                      }`}
+                    >
+                      {kdRatio} K/D
+                    </span>
+                    <span className="text-[#8f98a0] mx-1.5">|</span>
+                    <span className="text-[#66c0f4] font-bold">{adr} ADR</span>
+                    <span className="text-[#8f98a0] mx-1.5">|</span>
+                    <span className="text-[#c7d5e0]">{hsPct}% HS</span>
+                  </td>
                   <td className="py-4 px-5 text-xs font-mono text-[#c7d5e0]">
                     <span className="text-[#a4d007] font-bold">{player.wins}W</span> -{" "}
                     <span className="text-red-400">{player.losses}L</span>{" "}
-                    <span className="text-[10px] text-[#8f98a0] ml-1">
-                      ({totalGames < 6 ? `Calibrando ${totalGames}/6` : `${totalGames} Jugadas`})
-                    </span>
+                    <span className="text-[#a4d007] font-bold ml-1.5">({winrate}%)</span>
                   </td>
-                  <td className="py-4 px-5 text-[#a4d007] font-bold">{winrate}%</td>
                   <td
                     className={`py-4 px-5 text-right font-bold ${
                       index === 0 ? "text-[#FF5500]" : "text-white"

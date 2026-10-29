@@ -38,9 +38,16 @@ export default React.memo(function RecentMatchesSection({ matches }: Props) {
               className="p-5 rounded-sm bg-[#1b2838]/80 border border-[#2a475e] flex items-center justify-between"
             >
               <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[#66c0f4]">
-                  MAPA: {m.selected_map}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#66c0f4]">
+                    MAPA: {m.selected_map}
+                  </span>
+                  {m.mvp_nickname && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-yellow-500/20 border border-yellow-400/50 text-yellow-300 font-black uppercase">
+                      ★ MVP: {m.mvp_nickname}
+                    </span>
+                  )}
+                </div>
                 <div className="text-base font-black text-white mt-1">
                   {m.team_a} <span className="text-[#8f98a0] font-normal">vs</span> {m.team_b}
                 </div>

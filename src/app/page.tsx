@@ -1134,11 +1134,6 @@ export default function Home() {
                         FILTRO ELO: {eloWindowDelta >= 5000 ? " RANGO ABIERTO" : ` ±${eloWindowDelta} ELO`}
                       </span>
                     </div>
-                    <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/40 text-[10px] font-mono font-bold text-[#66c0f4]">
-                      <span>
-                        FILTRO ELO: {eloWindowDelta >= 5000 ? " RANGO ABIERTO" : ` ±${eloWindowDelta} ELO`}
-                      </span>
-                    </div>
                     <p className="text-[11px] text-[#8f98a0] mt-2 mb-3">
                       Aprovecha para avanzar tus misiones semanales en el Mapa de Practica.
                     </p>

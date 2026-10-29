@@ -98,6 +98,7 @@ export interface MatchItem {
   score_b: number;
   status: string;
   winner: string | null;
+  mvp_nickname?: string | null;
 }
 
 export interface PersistedMissionState {
@@ -116,6 +117,12 @@ export interface LeaderboardPlayer {
   losses: number;
   country: string;
   season_prize: string;
+  kills?: number;
+  deaths?: number;
+  headshots?: number;
+  total_damage?: number;
+  rounds_played?: number;
+  mvp_count?: number;
   mission_data?: PersistedMissionState | null;
 }
 
