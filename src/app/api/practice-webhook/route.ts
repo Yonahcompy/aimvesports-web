@@ -1,56 +1,50 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { verifyRequestIdentity } from "@/lib/session";
+import { sendSourceRconCommand } from "@/lib/rconBridge";
+import { INITIAL_MISSIONS } from "@/lib/ranks";
 
 const ADMIN_STEAM_IDS = ["76561199757155122", "76561199724566305"];
 
-const DEFAULT_MISSIONS = [
-  {
-    id: "m_aimbotz",
-    modeId: "aim_botz",
-    title: "Calentamiento de Acero (Aim Botz :27016)",
-    targetText: "Elimina 100 Bots con Headshot en el servidor de practica",
-    current: 0,
-    goal: 100,
-    eloReward: 10,
-    eloPenalty: 13,
-    bonusLabel: "+10 ELO & Bono Mano Caliente (+10 ELO en tu prox. victoria 5v5)",
-    claimed: false,
-    penalized: false,
-  },
-  {
-    id: "m_dmffa",
-    modeId: "dm_ffa",
-    title: "Dominio de Duelos (Deathmatch FFA :27017)",
-    targetText: "Consigue 40 bajas con AK-47, M4 o Deagle en FFA",
-    current: 0,
-    goal: 40,
-    eloReward: 15,
-    eloPenalty: 13,
-    bonusLabel: "+15 ELO Directos + 150 Pts Sorteo Mensual Skins",
-    claimed: false,
-    penalized: false,
-  },
-  {
-    id: "m_retakes",
-    modeId: "retakes",
-    title: "Especialista en Defuse (Retakes 5v5 :27018)",
-    targetText: "Gana 10 rondas de Retake plantando o desactivando C4",
-    current: 0,
-    goal: 10,
-    eloReward: 5,
-    eloPenalty: 13,
-    bonusLabel: "+5 ELO & 1 Escudo Protector (0 ELO perdido en tu prox. derrota)",
-    claimed: false,
-    penalized: false,
-  },
-];
+const WORKSHOP_MAP_BY_MODE: Record<string, { workshopId: string; label: string }> = {
+  aim_botz: { workshopId: "3070244462", label: "Aim Botz (uLLeticaL)" },
+  m_aimbotz: { workshopId: "3070244462", label: "Aim Botz (uLLeticaL)" },
+  dm_ffa: { workshopId: "3100869952", label: "Recoil Master (Spray)" },
+  m_dmffa: { workshopId: "3100869952", label: "Recoil Master (Spray)" },
+  retakes: { workshopId: "3070389038", label: "5E Aimhub & CSStats" },
+  m_retakes: { workshopId: "3070389038", label: "5E Aimhub & CSStats" },
+};
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { steam_id, mode_id, amount } = body;
+    const { action, steam_id, mode_id, amount } = body;
 
+    // 1. ACCION: CAMBIAR MAPA DE WORKSHOP EN MIAMI DESDE LA WEB
+    if (action === "launch") {
+      const target = WORKSHOP_MAP_BY_MODE[String(mode_id)] || WORKSHOP_MAP_BY_MODE.aim_botz;
+      const host = process.env.CS2_SERVER_HOST || "207.246.79.56";
+      const port = Number(process.env.CS2_SERVER_PORT) || 27025;
+      const rconPass = process.env.CS2_RCON_PASSWORD || "AimVe_Rcon_Miami_2026";
+
+      const rconRes = await sendSourceRconCommand(
+        host,
+        port,
+        rconPass,
+        `host_workshop_map ${target.workshopId}`,
+        2000
+      );
+
+      return NextResponse.json({
+        ok: true,
+        launched: target.label,
+        workshopId: target.workshopId,
+        rconOk: rconRes.ok,
+        connectUrl: `steam://connect/207.246.79.56:${port}`,
+      });
+    }
+
+    // 2. ACCION: REGISTRAR PROGRESO DE MISION EN SUPABASE
     const authHeader = request.headers.get("Authorization");
     const secretHeader = request.headers.get("x-aimve-secret");
     const expectedSecret = process.env.MATCHZY_WEBHOOK_SECRET || "aimve_matchzy_secret_2026";
@@ -85,18 +79,23 @@ export async function POST(request: Request) {
     }
 
     const currentData = player.mission_data || {
-      missions: DEFAULT_MISSIONS,
+      missions: INITIAL_MISSIONS,
       eloShieldActive: Boolean(player.elo_shield),
       hotHandBonus: Boolean(player.hot_hand_bonus),
       weekExpiresAt: Date.now() + 7 * 86400 * 1000,
     };
 
-    const updatedMissions = (currentData.missions || DEFAULT_MISSIONS).map((m: any) => {
-      if (m.modeId === mode_id || m.id === mode_id) {
-        const nextVal = Math.min(m.goal, (Number(m.current) || 0) + addValue);
-        return { ...m, current: nextVal, penalized: false };
+    const updatedMissions = (currentData.missions || INITIAL_MISSIONS).map((m: any) => {
+      const template = INITIAL_MISSIONS.find((t) => t.id === m.id || t.modeId === m.modeId);
+      const syncedMission = template
+        ? { ...m, title: template.title, targetText: template.targetText }
+        : m;
+
+      if (syncedMission.modeId === mode_id || syncedMission.id === mode_id) {
+        const nextVal = Math.min(syncedMission.goal, (Number(syncedMission.current) || 0) + addValue);
+        return { ...syncedMission, current: nextVal, penalized: false };
       }
-      return m;
+      return syncedMission;
     });
 
     const newMissionData = {
@@ -123,6 +122,6 @@ export async function POST(request: Request) {
 export async function GET() {
   return NextResponse.json({
     status: "active",
-    endpoint: "AimVe Sports Practice Servers Webhook (:27016, :27017, :27018)",
+    endpoint: "AimVe Sports Workshop Practice & Missions Webhook (:27025)",
   });
 }

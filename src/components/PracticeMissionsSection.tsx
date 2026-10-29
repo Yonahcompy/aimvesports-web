@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { PRACTICE_MODES, WeeklyMission } from "@/lib/ranks";
+import { PRACTICE_MODES, INITIAL_MISSIONS, WeeklyMission } from "@/lib/ranks";
 
 interface Props {
   selectedPractice: (typeof PRACTICE_MODES)[0];
@@ -29,6 +29,7 @@ export default React.memo(function PracticeMissionsSection({
   isAdmin,
 }: Props) {
   const [weekSecondsLeft, setWeekSecondsLeft] = useState<number>(7 * 86400);
+  const [launchingMode, setLaunchingMode] = useState<string | null>(null);
 
   useEffect(() => {
     if (!weekExpiresAt) return;
@@ -48,6 +49,30 @@ export default React.memo(function PracticeMissionsSection({
     return `${d}d ${h}h ${m}m`;
   };
 
+  const handleLaunchWorkshopServer = async (modeId: string, modeName: string) => {
+    try {
+      setLaunchingMode(modeId);
+      setMissionBanner(
+        `Enviando orden RCON a Miami (207.246.79.56:27025) para cargar ${modeName}... Abriendo CS2 en 4 segundos.`
+      );
+      const res = await fetch("/api/practice-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "launch", mode_id: modeId }),
+      });
+      const data = await res.json();
+      const connectUrl = data?.connectUrl || "steam://connect/207.246.79.56:27025";
+
+      setTimeout(() => {
+        setLaunchingMode(null);
+        window.location.href = connectUrl;
+      }, 3800);
+    } catch {
+      setLaunchingMode(null);
+      window.location.href = "steam://connect/207.246.79.56:27025";
+    }
+  };
+
   return (
     <section id="practica" className="mt-20 text-left">
       <div className="p-6 rounded-sm bg-gradient-to-r from-[#1b2838] via-[#171a21] to-[#1b2838] border border-[#66c0f4]/50 shadow-xl">
@@ -55,27 +80,30 @@ export default React.memo(function PracticeMissionsSection({
           <div>
             <div className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#a4d007] mb-1">
               <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-ping"></span>
-              WARMUP SERVER 24/7 | NO PIERDES TU LUGAR EN LA COLA 5v5
+              WORKSHOP TRAINING HUB MIAMI (:27025) | NO PIERDES TU LUGAR EN LA COLA 5v5
             </div>
             <h2 className="text-2xl md:text-3xl font-black text-white">
               MAPA DE PRACTICA &amp; MISIONES SEMANALES
             </h2>
             <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-              Entrena punteria mientras se llena el Lobby 5v5. Tienes{" "}
+              Elige tu mapa oficial de la Workshop (Aim Botz, Recoil Master o 5E Aimhub). Al hacer clic, el servidor de Miami cambia de mapa en caliente y registra tu progreso de mision. Tienes{" "}
               <span className="text-white font-bold">7 dias</span> para completar las
-              misiones semanales: ganarás ELO directo y escudos, pero cada mision no
-              completada al cierre de la semana descuenta{" "}
+              misiones semanales o se descuenta{" "}
               <span className="text-red-400 font-bold">-13 ELO</span>.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <a
-              href={`steam://connect/miami1.aimvesports.com:${selectedPractice.port}`}
-              className="px-6 py-3.5 rounded-sm bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white font-black text-xs uppercase tracking-wider text-center transition shadow-lg shadow-[#66c0f4]/25"
+            <button
+              type="button"
+              disabled={Boolean(launchingMode)}
+              onClick={() => handleLaunchWorkshopServer(selectedPractice.id, selectedPractice.name)}
+              className="px-6 py-3.5 rounded-sm bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 disabled:opacity-60 text-white font-black text-xs uppercase tracking-wider text-center transition shadow-lg shadow-[#66c0f4]/25 cursor-pointer"
             >
-              &gt; ENTRAR A PRACTICAR ({selectedPractice.name.split(" ")[0].toUpperCase()})
-            </a>
+              {launchingMode === selectedPractice.id
+                ? "CARGANDO MAPA EN MIAMI (4s)..."
+                : `> CARGAR Y ENTRAR (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
+            </button>
           </div>
         </div>
 
@@ -95,7 +123,7 @@ export default React.memo(function PracticeMissionsSection({
               >
                 <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
                   <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
-                    PUERTO :{mode.port}
+                    MIAMI :{mode.port}
                   </span>
                   <span className="text-[#a4d007]">{mode.slots}</span>
                 </div>
@@ -121,13 +149,15 @@ export default React.memo(function PracticeMissionsSection({
             </div>
 
             {isAdmin && (
-              <button
-                type="button"
-                onClick={handleExpireWeekCheck}
-                className="text-[11px] px-3 py-1.5 rounded-sm bg-[#2a475e]/70 hover:bg-red-600/80 text-white font-bold transition cursor-pointer"
-              >
-                Simular Corte de 7 Dias (Admin)
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExpireWeekCheck}
+                  className="text-[11px] px-3 py-1.5 rounded-sm bg-[#2a475e]/70 hover:bg-red-600/80 text-white font-bold transition cursor-pointer"
+                >
+                  Simular Corte de 7 Dias (Admin)
+                </button>
+              </div>
             )}
           </div>
 
@@ -145,7 +175,15 @@ export default React.memo(function PracticeMissionsSection({
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {missions.map((m) => {
+            {missions.map((rawMission) => {
+              // Sincronizar siempre el titulo y descripcion con los 3 mapas de Workshop nuevos
+              const template = INITIAL_MISSIONS.find(
+                (t) => t.id === rawMission.id || t.modeId === rawMission.modeId
+              );
+              const m = template
+                ? { ...rawMission, title: template.title, targetText: template.targetText }
+                : rawMission;
+
               const pct = Math.min(100, Math.round((m.current / m.goal) * 100));
               const completed = m.current >= m.goal;
 
@@ -164,7 +202,7 @@ export default React.memo(function PracticeMissionsSection({
                 >
                   <div>
                     <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                      <span className="text-[#66c0f4]">PLAZO: 7 DIAS</span>
+                      <span className="text-[#66c0f4]">MIAMI :27025</span>
                       {m.claimed ? (
                         <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
                       ) : m.penalized ? (
@@ -203,9 +241,20 @@ export default React.memo(function PracticeMissionsSection({
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-[#2a475e]/40 flex items-center gap-2">
+                  <div className="mt-4 pt-3 border-t border-[#2a475e]/40 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      disabled={Boolean(launchingMode)}
+                      onClick={() => handleLaunchWorkshopServer(m.modeId, m.title)}
+                      className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition cursor-pointer"
+                    >
+                      {launchingMode === m.modeId
+                        ? "Cargando Mapa en Miami (4s)..."
+                        : "> Cargar Mapa en Miami y Entrar"}
+                    </button>
+
                     {m.claimed ? (
-                      <span className="w-full text-center py-1.5 rounded-sm bg-[#a4d007]/15 text-[#a4d007] text-[11px] font-black uppercase">
+                      <span className="w-full text-center py-1 rounded-sm bg-[#a4d007]/15 text-[#a4d007] text-[10px] font-black uppercase">
                         Mision Semanal Completada OK
                       </span>
                     ) : completed ? (
@@ -216,23 +265,16 @@ export default React.memo(function PracticeMissionsSection({
                       >
                         Reclamar +{m.eloReward} ELO y Bono
                       </button>
-                    ) : isAdmin ? (
-                      <button
-                        type="button"
-                        onClick={() => handleAdvanceMissionProgress(m.id)}
-                        className="w-full py-1.5 rounded-sm bg-[#2a475e] hover:bg-[#66c0f4] hover:text-[#171a21] text-white text-[11px] font-bold uppercase transition cursor-pointer"
-                      >
-                        Simular Mision (Admin {m.goal}/{m.goal})
-                      </button>
                     ) : (
-                      <a
-                        href={`steam://connect/miami1.aimvesports.com:${
-                          m.modeId === "aim_botz" ? "27016" : m.modeId === "dm_ffa" ? "27017" : "27018"
-                        }`}
-                        className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition"
-                      >
-                        Entrar al Servidor para Progresar
-                      </a>
+                      isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleAdvanceMissionProgress(m.id)}
+                          className="w-full py-1 rounded-sm bg-[#2a475e]/60 hover:bg-[#66c0f4] hover:text-[#171a21] text-white text-[10px] font-bold uppercase transition cursor-pointer"
+                        >
+                          Simular Mision (Admin {m.goal}/{m.goal})
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
