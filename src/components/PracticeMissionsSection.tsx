@@ -94,7 +94,51 @@ export default React.memo(function PracticeMissionsSection({
     return `${d}d ${h}h ${m}m`;
   };
 
+  const getNormalizedMission = (modeOrMissionId: string) => {
+    const raw = syncedMissions.find(
+      (x) => x.id === modeOrMissionId || x.modeId === modeOrMissionId
+    );
+    if (!raw) return null;
+    const template = INITIAL_MISSIONS.find(
+      (t) => t.id === raw.id || t.modeId === raw.modeId
+    );
+    return template
+      ? {
+          ...raw,
+          title: template.title,
+          targetText: template.targetText,
+          goal: template.goal,
+        }
+      : raw;
+  };
+
+  const handleClaimAndSync = async (missionId: string) => {
+    setSyncedMissions((prev) =>
+      prev.map((item) =>
+        item.id === missionId || item.modeId === missionId
+          ? { ...item, claimed: true }
+          : item
+      )
+    );
+    handleClaimMission(missionId);
+    try {
+      await fetch("/api/practice-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "claim", mission_id: missionId }),
+      });
+    } catch {}
+  };
+
   const handleLaunchWorkshopServer = (modeId: string, modeName: string) => {
+    const targetMission = getNormalizedMission(modeId);
+    if (targetMission && targetMission.current >= targetMission.goal) {
+      setMissionBanner(
+        `Ya completaste ${modeName} esta semana. El mapa se volverá a activar en ${formatWeekRemaining(weekSecondsLeft)}.`
+      );
+      return;
+    }
+
     const assignedPort = PORT_BY_MODE[modeId] || 27025;
     const consoleCmd = `connect 207.246.79.56:${assignedPort}`;
     const steamOverlayUrl = `steam://run/730//+connect%20207.246.79.56:${assignedPort}`;
@@ -110,14 +154,12 @@ export default React.memo(function PracticeMissionsSection({
       `Abriendo CS2 en Sala Miami (:${assignedPort}) — ${modeName}. Comando "${consoleCmd}" copiado al portapapeles (Consola ~ -> Ctrl+V si CS2 ya está abierto).`
     );
 
-    // Notificar al orquestador en segundo plano sin bloquear el disparo inmediato de ventana
     fetch("/api/practice-webhook", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "launch", mode_id: modeId }),
     }).catch(() => {});
 
-    // Disparo inmediato dentro del evento de clic del usuario para que Windows superponga CS2 al frente
     window.location.href = steamOverlayUrl;
 
     setTimeout(() => {
@@ -126,6 +168,11 @@ export default React.memo(function PracticeMissionsSection({
   };
 
   const allRoomsBusy = roomStatus.busy_rooms >= roomStatus.max_rooms;
+  const selectedMission = getNormalizedMission(selectedPractice.id);
+  const isSelectedCompleted = Boolean(
+    selectedMission && selectedMission.current >= selectedMission.goal
+  );
+  const isSelectedClaimed = Boolean(isSelectedCompleted && selectedMission?.claimed);
 
   return (
     <section id="practica" className="mt-20 text-left">
@@ -167,16 +214,31 @@ export default React.memo(function PracticeMissionsSection({
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <button
-              type="button"
-              disabled={Boolean(launchingMode)}
-              onClick={() => handleLaunchWorkshopServer(selectedPractice.id, selectedPractice.name)}
-              className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white shadow-[#66c0f4]/25"
-            >
-              {launchingMode === selectedPractice.id
-                ? "ABRIENDO CS2..."
-                : `> MISIÓN SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
-            </button>
+            {isSelectedClaimed ? (
+              <div className="px-5 py-3 rounded-sm bg-[#111318] border border-[#a4d007]/60 text-xs font-mono font-bold text-[#c7d5e0] text-center">
+                ⏳ SE VOLVERÁ A ACTIVAR EN:{" "}
+                <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
+              </div>
+            ) : isSelectedCompleted && selectedMission ? (
+              <button
+                type="button"
+                onClick={() => handleClaimAndSync(selectedMission.id)}
+                className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-[#a4d007] hover:brightness-110 text-[#171a21]"
+              >
+                RECLAMAR +{selectedMission.eloReward} ELO Y BONO
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={Boolean(launchingMode)}
+                onClick={() => handleLaunchWorkshopServer(selectedPractice.id, selectedPractice.name)}
+                className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white shadow-[#66c0f4]/25"
+              >
+                {launchingMode === selectedPractice.id
+                  ? "ABRIENDO CS2..."
+                  : `> MISIÓN SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
+              </button>
+            )}
           </div>
         </div>
 
@@ -197,6 +259,8 @@ export default React.memo(function PracticeMissionsSection({
           {PRACTICE_MODES.map((mode) => {
             const active = selectedPractice.id === mode.id;
             const mPort = PORT_BY_MODE[mode.id] || 27025;
+            const modeMission = getNormalizedMission(mode.id);
+            const modeDone = Boolean(modeMission && modeMission.current >= modeMission.goal);
             return (
               <button
                 key={mode.id}
@@ -212,7 +276,13 @@ export default React.memo(function PracticeMissionsSection({
                   <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
                     SALA MIAMI :{mPort}
                   </span>
-                  <span className="text-[#a4d007]">Sala Activa</span>
+                  {modeDone ? (
+                    <span className="text-[#a4d007]">
+                      Reactiva en {formatWeekRemaining(weekSecondsLeft)}
+                    </span>
+                  ) : (
+                    <span className="text-[#a4d007]">Sala Activa</span>
+                  )}
                 </div>
                 <div className="text-sm font-black text-white">{mode.name}</div>
                 <p className="text-[11px] text-[#8f98a0] mt-1">{mode.desc}</p>
@@ -321,25 +391,34 @@ export default React.memo(function PracticeMissionsSection({
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-[#2a475e]/40 flex flex-col gap-2">
-                    <button
-                      type="button"
-                      disabled={Boolean(launchingMode)}
-                      onClick={() => handleLaunchWorkshopServer(m.modeId, m.title)}
-                      className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition cursor-pointer"
-                    >
-                      {launchingMode === m.modeId
-                        ? "Abriendo CS2..."
-                        : "> Misión Semanal"}
-                    </button>
+                    {!completed && (
+                      <button
+                        type="button"
+                        disabled={Boolean(launchingMode)}
+                        onClick={() => handleLaunchWorkshopServer(m.modeId, m.title)}
+                        className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition cursor-pointer"
+                      >
+                        {launchingMode === m.modeId
+                          ? "Abriendo CS2..."
+                          : "> Misión Semanal"}
+                      </button>
+                    )}
 
                     {completed && !m.claimed && (
                       <button
                         type="button"
-                        onClick={() => handleClaimMission(m.id)}
+                        onClick={() => handleClaimAndSync(m.id)}
                         className="w-full py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] text-[11px] font-black uppercase transition cursor-pointer"
                       >
                         Reclamar +{m.eloReward} ELO y Bono
                       </button>
+                    )}
+
+                    {completed && m.claimed && (
+                      <div className="w-full text-center py-1.5 px-2 rounded-sm bg-[#111318] border border-[#2a475e] text-[11px] font-mono font-bold text-[#8f98a0]">
+                        ⏳ Se volverá a activar en:{" "}
+                        <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
+                      </div>
                     )}
                   </div>
                 </div>

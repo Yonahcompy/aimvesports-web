@@ -18,9 +18,9 @@ const WORKSHOP_MAP_BY_MODE: Record<string, { workshopId: string; label: string; 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { action, steam_id, mode_id, amount } = body;
+    const { action, steam_id, mode_id, amount, mission_id } = body;
 
-    // 1. SOLICITAR SALA DE PRACTICA AL ORQUESTADOR DE MIAMI (3 SALAS DEDICADAS)
+    // 1. SOLICITAR SALA DE PRACTICA AL ORQUESTADOR DE MIAMI
     if (action === "launch") {
       const target = WORKSHOP_MAP_BY_MODE[String(mode_id)] || WORKSHOP_MAP_BY_MODE.aim_botz;
 
@@ -62,7 +62,51 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. RECIBIR PROGRESO REAL AUDITADO POR EL SERVIDOR DE MIAMI
+    // 2. PERSISTIR RECLAMO DE RECOMPENSA EN SUPABASE
+    if (action === "claim") {
+      const identity = verifyRequestIdentity(request);
+      if (!identity?.steamId) {
+        return NextResponse.json({ error: "Sesion requerida" }, { status: 401 });
+      }
+
+      const { data: player } = await supabase
+        .from("leaderboard_players")
+        .select("*")
+        .eq("steam_id", String(identity.steamId))
+        .maybeSingle();
+
+      if (!player) {
+        return NextResponse.json({ error: "Jugador no encontrado" }, { status: 404 });
+      }
+
+      const currentData = player.mission_data || {
+        missions: INITIAL_MISSIONS,
+        eloShieldActive: Boolean(player.elo_shield),
+        hotHandBonus: Boolean(player.hot_hand_bonus),
+        weekExpiresAt: Date.now() + 7 * 86400 * 1000,
+      };
+
+      const updatedMissions = (currentData.missions || INITIAL_MISSIONS).map((m: any) => {
+        if (m.id === mission_id || m.modeId === mission_id) {
+          return { ...m, claimed: true };
+        }
+        return m;
+      });
+
+      const newMissionData = {
+        ...currentData,
+        missions: updatedMissions,
+      };
+
+      await supabase
+        .from("leaderboard_players")
+        .update({ mission_data: newMissionData })
+        .eq("id", player.id);
+
+      return NextResponse.json({ ok: true, missions: updatedMissions });
+    }
+
+    // 3. RECIBIR PROGRESO REAL AUDITADO POR EL SERVIDOR DE MIAMI
     const authHeader = request.headers.get("Authorization");
     const secretHeader = request.headers.get("x-aimve-secret");
     const expectedSecret = process.env.MATCHZY_WEBHOOK_SECRET || "aimve_matchzy_secret_2026";
