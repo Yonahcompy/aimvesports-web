@@ -6,13 +6,13 @@ import { INITIAL_MISSIONS } from "@/lib/ranks";
 
 const ORCHESTRATOR_URL = "http://207.246.79.56:8085";
 
-const WORKSHOP_MAP_BY_MODE: Record<string, { workshopId: string; label: string }> = {
-  aim_botz: { workshopId: "3070244462", label: "Aim Botz (uLLeticaL)" },
-  m_aimbotz: { workshopId: "3070244462", label: "Aim Botz (uLLeticaL)" },
-  dm_ffa: { workshopId: "3100869952", label: "Recoil Master (Spray)" },
-  m_dmffa: { workshopId: "3100869952", label: "Recoil Master (Spray)" },
-  retakes: { workshopId: "3070389038", label: "5E Aimhub & CSStats" },
-  m_retakes: { workshopId: "3070389038", label: "5E Aimhub & CSStats" },
+const WORKSHOP_MAP_BY_MODE: Record<string, { workshopId: string; label: string; port: number }> = {
+  aim_botz:  { workshopId: "3070244462", label: "Aim Botz (uLLeticaL)",  port: 27025 },
+  m_aimbotz: { workshopId: "3070244462", label: "Aim Botz (uLLeticaL)",  port: 27025 },
+  dm_ffa:    { workshopId: "3100869952", label: "Recoil Master (Spray)", port: 27035 },
+  m_dmffa:   { workshopId: "3100869952", label: "Recoil Master (Spray)", port: 27035 },
+  retakes:   { workshopId: "3070389038", label: "5E Aimhub & CSStats",   port: 27016 },
+  m_retakes: { workshopId: "3070389038", label: "5E Aimhub & CSStats",   port: 27016 },
 };
 
 export async function POST(request: Request) {
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action, steam_id, mode_id, amount } = body;
 
-    // 1. SOLICITAR SALA DE PRACTICA AL ORQUESTADOR DE MIAMI (CON SEMAFORO DE CUPOS)
+    // 1. SOLICITAR SALA DE PRACTICA AL ORQUESTADOR DE MIAMI (3 SALAS DEDICADAS)
     if (action === "launch") {
       const target = WORKSHOP_MAP_BY_MODE[String(mode_id)] || WORKSHOP_MAP_BY_MODE.aim_botz;
 
@@ -29,49 +29,35 @@ export async function POST(request: Request) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mode_id: String(mode_id) }),
-          signal: AbortSignal.timeout(3500),
+          signal: AbortSignal.timeout(3000),
         });
         const orchData = await orchRes.json();
-
-        if (orchRes.status === 429 || orchData.busy) {
-          return NextResponse.json(
-            {
-              ok: false,
-              busy: true,
-              activeRooms: orchData.activeRooms || 2,
-              maxRooms: orchData.maxRooms || 2,
-              message:
-                orchData.message ||
-                "SERVIDORES DE PRACTICA OCUPADOS: Todas las salas individuales estan en uso en este momento. Intenta en unos minutos.",
-            },
-            { status: 429 }
-          );
-        }
 
         return NextResponse.json({
           ok: true,
           busy: false,
           launched: target.label,
-          port: orchData.port || 27025, waitMs: orchData.waitMs || 4000,
-          connectUrl: orchData.connectUrl || "steam://connect/207.246.79.56:27025",
+          port: orchData.port || target.port,
+          waitMs: 0,
+          connectUrl: `steam://run/730//+connect%20207.246.79.56:${orchData.port || target.port}`,
         });
       } catch {
-        // Fallback directo por RCON a la Sala 1 (:27025) si el puerto HTTP 8085 no responde
         const host = process.env.CS2_SERVER_HOST || "207.246.79.56";
         const rconPass = process.env.CS2_RCON_PASSWORD || "AimVe_Rcon_Miami_2026";
         await sendSourceRconCommand(
           host,
-          27025,
+          target.port,
           rconPass,
-          `host_workshop_map ${target.workshopId}`,
-          2000
+          `css_plugins unload MatchZy`,
+          1500
         );
         return NextResponse.json({
           ok: true,
           busy: false,
           launched: target.label,
-          port: 27025,
-          connectUrl: "steam://connect/207.246.79.56:27025",
+          port: target.port,
+          waitMs: 0,
+          connectUrl: `steam://run/730//+connect%20207.246.79.56:${target.port}`,
         });
       }
     }
@@ -159,7 +145,7 @@ export async function GET(request: Request) {
   let roomStatus = {
     prime_time_5v5: false,
     busy_rooms: 0,
-    max_rooms: 2,
+    max_rooms: 3,
   };
 
   try {
@@ -173,12 +159,11 @@ export async function GET(request: Request) {
       roomStatus = {
         prime_time_5v5: Boolean(data.prime_time_5v5),
         busy_rooms: Number(data.busy_rooms) || 0,
-        max_rooms: Number(data.max_rooms) || 2,
+        max_rooms: Number(data.max_rooms) || 3,
       };
     }
   } catch {}
 
-  // Si el usuario tiene sesion activa, devolvemos tambien su progreso actualizado desde Supabase
   let liveMissions = null;
   try {
     const identity = verifyRequestIdentity(request);

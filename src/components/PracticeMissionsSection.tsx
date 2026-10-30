@@ -16,6 +16,15 @@ interface Props {
   isAdmin: boolean;
 }
 
+const PORT_BY_MODE: Record<string, number> = {
+  aim_botz: 27025,
+  m_aimbotz: 27025,
+  dm_ffa: 27035,
+  m_dmffa: 27035,
+  retakes: 27016,
+  m_retakes: 27016,
+};
+
 export default React.memo(function PracticeMissionsSection({
   selectedPractice,
   setSelectedPractice,
@@ -32,7 +41,7 @@ export default React.memo(function PracticeMissionsSection({
     prime_time_5v5: boolean;
     busy_rooms: number;
     max_rooms: number;
-  }>({ prime_time_5v5: false, busy_rooms: 0, max_rooms: 2 });
+  }>({ prime_time_5v5: false, busy_rooms: 0, max_rooms: 3 });
   const [syncedMissions, setSyncedMissions] = useState<WeeklyMission[]>(missions);
 
   useEffect(() => {
@@ -58,7 +67,7 @@ export default React.memo(function PracticeMissionsSection({
 
   useEffect(() => {
     fetchLivePracticeState();
-    const interval = setInterval(fetchLivePracticeState, 12000);
+    const interval = setInterval(fetchLivePracticeState, 10000);
     const onFocus = () => fetchLivePracticeState();
     window.addEventListener("focus", onFocus);
     return () => {
@@ -85,50 +94,35 @@ export default React.memo(function PracticeMissionsSection({
     return `${d}d ${h}h ${m}m`;
   };
 
-  const handleLaunchWorkshopServer = async (modeId: string, modeName: string) => {
+  const handleLaunchWorkshopServer = (modeId: string, modeName: string) => {
+    const assignedPort = PORT_BY_MODE[modeId] || 27025;
+    const consoleCmd = `connect 207.246.79.56:${assignedPort}`;
+    const steamOverlayUrl = `steam://run/730//+connect%20207.246.79.56:${assignedPort}`;
+
+    setLaunchingMode(modeId);
+    setServerBusyAlert(null);
+
     try {
-      setLaunchingMode(modeId);
-      setServerBusyAlert(null);
-      setMissionBanner(
-        `Buscando sala libre en Miami y cargando ${modeName}...`
-      );
-      const res = await fetch("/api/practice-webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "launch", mode_id: modeId }),
-      });
-      const data = await res.json();
+      navigator.clipboard.writeText(consoleCmd);
+    } catch {}
 
-      if (res.status === 429 || data?.busy) {
-        setLaunchingMode(null);
-        setMissionBanner(null);
-        setServerBusyAlert(
-          data?.message ||
-            "SERVIDORES DE PRACTICA OCUPADOS: Todas las salas individuales estÃƒÂ¡n en uso en este momento. Intenta en unos minutos."
-        );
-        fetchLivePracticeState();
-        return;
-      }
+    setMissionBanner(
+      `Abriendo CS2 en Sala Miami (:${assignedPort}) — ${modeName}. Comando "${consoleCmd}" copiado al portapapeles (Consola ~ -> Ctrl+V si CS2 ya está abierto).`
+    );
 
-      const assignedPort = data?.port || 27025;
-      const waitMs = data?.waitMs || 2000;
-      const consoleCmd = `connect 207.246.79.56:${assignedPort}`;
-      const connectUrl = `steam://run/730//+connect%20207.246.79.56:${assignedPort}`;
-      try {
-        await navigator.clipboard.writeText(consoleCmd);
-      } catch {}
+    // Notificar al orquestador en segundo plano sin bloquear el disparo inmediato de ventana
+    fetch("/api/practice-webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "launch", mode_id: modeId }),
+    }).catch(() => {});
 
-      setMissionBanner(
-        `Sala lista en Miami (:${assignedPort}) con ${modeName}. Comando "${consoleCmd}" copiado al portapapeles (pegalo en consola ~ si ya tienes CS2 abierto).`
-      );
-      setTimeout(() => {
-        setLaunchingMode(null);
-        window.location.href = connectUrl;
-      }, waitMs);
-    } catch {
+    // Disparo inmediato dentro del evento de clic del usuario para que Windows superponga CS2 al frente
+    window.location.href = steamOverlayUrl;
+
+    setTimeout(() => {
       setLaunchingMode(null);
-      window.location.href = "steam://connect/207.246.79.56:27025";
-    }
+    }, 1500);
   };
 
   const allRoomsBusy = roomStatus.busy_rooms >= roomStatus.max_rooms;
@@ -141,7 +135,7 @@ export default React.memo(function PracticeMissionsSection({
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <span className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#a4d007]">
                 <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-ping"></span>
-                WORKSHOP TRAINING HUB MIAMI | SALAS BAJO DEMANDA
+                WORKSHOP TRAINING HUB MIAMI | 3 SALAS DEDICADAS
               </span>
               <span
                 className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm border ${
@@ -151,13 +145,13 @@ export default React.memo(function PracticeMissionsSection({
                 }`}
               >
                 {allRoomsBusy
-                  ? `SALAS OCUPADAS (${roomStatus.busy_rooms}/${roomStatus.max_rooms})`
+                  ? `SALAS EN USO (${roomStatus.busy_rooms}/${roomStatus.max_rooms})`
                   : `SALAS DISPONIBLES (${roomStatus.busy_rooms}/${roomStatus.max_rooms} EN USO)`}
               </span>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/40 text-[#66c0f4]">
                 {roomStatus.prime_time_5v5
-                  ? "HORARIO PRIME TIME 5v5 ACTIVO (:27025 RESERVADO 5v5)"
-                  : "HORARIO DIURNO (CAPACIDAD MAXIMA DE PRACTICA)"}
+                  ? "HORARIO PRIME TIME 5v5 ACTIVO (:27025 / :27035 / :27016)"
+                  : "3 SALAS ACTIVAS SIMULTANEAS (:27025 | :27035 | :27016)"}
               </span>
             </div>
 
@@ -165,9 +159,9 @@ export default React.memo(function PracticeMissionsSection({
               MAPA DE PRACTICA &amp; MISIONES SEMANALES
             </h2>
             <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-              Entrena en tu propia sala privada sin interrumpir a otros jugadores. El progreso se audita en vivo desde los logs del servidor en Miami y se actualiza automÃƒÂ¡ticamente al hacer{" "}
-              <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misiÃƒÂ³n al cierre de los{" "}
-              <span className="text-white font-bold">7 dias</span> descuenta{" "}
+              Entrena en tu propia sala dedicada sin interrumpir a otros jugadores. El progreso se audita en vivo desde el motor de CS2 en Miami y se actualiza automáticamente al hacer{" "}
+              <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misión al cierre de los{" "}
+              <span className="text-white font-bold">7 días</span> descuenta{" "}
               <span className="text-red-400 font-bold">-13 ELO</span>.
             </p>
           </div>
@@ -177,24 +171,18 @@ export default React.memo(function PracticeMissionsSection({
               type="button"
               disabled={Boolean(launchingMode)}
               onClick={() => handleLaunchWorkshopServer(selectedPractice.id, selectedPractice.name)}
-              className={`px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer ${
-                allRoomsBusy
-                  ? "bg-red-900/80 border border-red-500 text-red-200 hover:bg-red-800"
-                  : "bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white shadow-[#66c0f4]/25"
-              }`}
+              className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white shadow-[#66c0f4]/25"
             >
               {launchingMode === selectedPractice.id
-                ? "ASIGNANDO SALA EN MIAMI (4s)..."
-                : allRoomsBusy
-                ? "SERVIDORES OCUPADOS (VERIFICAR CUPO)"
-                : `> ENTRAR A PRACTICAR (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
+                ? "ABRIENDO CS2..."
+                : `> MISIÓN SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
             </button>
           </div>
         </div>
 
         {serverBusyAlert && (
           <div className="mt-4 p-3.5 rounded-sm bg-red-950/90 border border-red-500 text-xs text-red-200 font-bold flex items-center justify-between">
-            <span>Ã¢Å¡Â Ã¯Â¸Â {serverBusyAlert}</span>
+            <span>⚠️ {serverBusyAlert}</span>
             <button
               type="button"
               onClick={() => setServerBusyAlert(null)}
@@ -208,6 +196,7 @@ export default React.memo(function PracticeMissionsSection({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5 pt-5 border-t border-[#2a475e]/60">
           {PRACTICE_MODES.map((mode) => {
             const active = selectedPractice.id === mode.id;
+            const mPort = PORT_BY_MODE[mode.id] || 27025;
             return (
               <button
                 key={mode.id}
@@ -221,11 +210,9 @@ export default React.memo(function PracticeMissionsSection({
               >
                 <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
                   <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
-                    POOL DINAMICO MIAMI
+                    SALA MIAMI :{mPort}
                   </span>
-                  <span className="text-[#a4d007]">
-                    {allRoomsBusy ? "En Uso" : "Sala Libre"}
-                  </span>
+                  <span className="text-[#a4d007]">Sala Activa</span>
                 </div>
                 <div className="text-sm font-black text-white">{mode.name}</div>
                 <p className="text-[11px] text-[#8f98a0] mt-1">{mode.desc}</p>
@@ -244,7 +231,7 @@ export default React.memo(function PracticeMissionsSection({
                 CIERRE EN: {formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)
               </span>
               <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-sm bg-red-950/70 border border-red-500/50 text-red-300">
-                INCUMPLIMIENTO: -13 ELO POR MISION
+                INCUMPLIMIENTO: -13 ELO POR MISIÓN
               </span>
             </div>
           </div>
@@ -294,7 +281,7 @@ export default React.memo(function PracticeMissionsSection({
                 >
                   <div>
                     <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                      <span className="text-[#66c0f4]">META SEMANAL</span>
+                      <span className="text-[#66c0f4]">MISIÓN SEMANAL</span>
                       {m.claimed && completed ? (
                         <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
                       ) : m.penalized ? (
@@ -341,8 +328,8 @@ export default React.memo(function PracticeMissionsSection({
                       className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition cursor-pointer"
                     >
                       {launchingMode === m.modeId
-                        ? "Asignando Sala en Miami (4s)..."
-                        : "> Entrar al Servidor a Progresar"}
+                        ? "Abriendo CS2..."
+                        : "> Misión Semanal"}
                     </button>
 
                     {completed && !m.claimed && (
