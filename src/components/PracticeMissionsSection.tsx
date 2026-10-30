@@ -187,7 +187,7 @@ export default React.memo(function PracticeMissionsSection({
       {isConnectingOverlay && (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#000000eb] backdrop-blur-sm transition-all duration-300">
           <div className="animate-bounce mb-6">
-            <span className="text-8xl drop-shadow-[0_0_15px_rgba(102,192,244,0.8)]">ðŸŽ®</span>
+            <span className="text-8xl drop-shadow-[0_0_15px_rgba(102,192,244,0.8)]">🎮</span>
           </div>
           <h2 className="text-4xl md:text-6xl font-black text-[#a4d007] mb-4 tracking-wider text-center drop-shadow-md">
             CONECTANDO A LA SALA...
