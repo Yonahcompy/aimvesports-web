@@ -961,12 +961,13 @@ export default function Home() {
             </span>
           </h1>
 
-        <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
-          Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), cumple tus{" "}
-          <span className="text-[#a4d007] font-semibold">Misiones Semanales en el Mapa de Practica</span> (7 dias de plazo o{" "}
-          <span className="text-red-400 font-bold">-13 ELO</span> por mision incompleta) y brilla hasta{" "}
-          <span className="text-yellow-300 font-bold">5,000+ Leyenda</span>.
-        </p>
+        <p className="mt-5 text-sm md:text-base text-[#8f98a0] max-w-2xl mx-auto leading-relaxed">
+            {"Entrena, practica y compite para ser un mejor jugador de CS2 a nivel competitivo, "}
+            <span className="text-white font-semibold">{"Mapas de pr\u00E1ctica, ELO, puntos para ganar skins, rangos y m\u00E1s"}</span>
+            {", Ay\u00FAdanos a crear la mejor comunidad de CS2 competitivo en "}
+            <span className="text-[#a4d007] font-black">{"VENEZUELA"}</span>
+            {"."}
+          </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
