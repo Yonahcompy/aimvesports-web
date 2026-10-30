@@ -135,7 +135,7 @@ export default React.memo(function PracticeMissionsSection({
     const targetMission = getNormalizedMission(modeId);
     if (targetMission && targetMission.current >= targetMission.goal) {
       setMissionBanner(
-        `Ya completaste ${modeName} esta semana. El mapa se volverá a activar en ${formatWeekRemaining(weekSecondsLeft)}.`
+        `Ya completaste ${modeName} esta semana. El mapa se volverÃ¡ a activar en ${formatWeekRemaining(weekSecondsLeft)}.`
       );
       return;
     }
@@ -154,7 +154,7 @@ export default React.memo(function PracticeMissionsSection({
     } catch {}
 
     setMissionBanner(
-      `Conectando a Sala Miami (:${assignedPort}) — ${modeName}. Comando "${consoleCmd}" copiado al portapapeles.`
+      `Conectando a Sala Miami (:${assignedPort}) â€” ${modeName}. Comando "${consoleCmd}" copiado al portapapeles.`
     );
 
     // Notificar al orquestador en segundo plano
@@ -171,7 +171,7 @@ export default React.memo(function PracticeMissionsSection({
     setTimeout(() => {
       setLaunchingMode(null);
       setIsConnectingOverlay(false);
-    }, 4500);
+    }, 7000);
   };
 
   const allRoomsBusy = roomStatus.busy_rooms >= roomStatus.max_rooms;
@@ -187,16 +187,16 @@ export default React.memo(function PracticeMissionsSection({
       {isConnectingOverlay && (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#000000eb] backdrop-blur-sm transition-all duration-300">
           <div className="animate-bounce mb-6">
-            <span className="text-8xl drop-shadow-[0_0_15px_rgba(102,192,244,0.8)]">🎮</span>
+            <span className="text-8xl drop-shadow-[0_0_15px_rgba(102,192,244,0.8)]">ðŸŽ®</span>
           </div>
           <h2 className="text-4xl md:text-6xl font-black text-[#a4d007] mb-4 tracking-wider text-center drop-shadow-md">
             CONECTANDO A LA SALA...
           </h2>
           <p className="text-xl md:text-3xl text-white font-bold text-center animate-pulse">
-            Maximiza tu juego ahora (Presiona <span className="text-[#66c0f4]">ALT + TAB</span>)
+            Maximiza tu juego ahora
           </p>
           <p className="text-[#8f98a0] mt-8 text-sm md:text-base font-mono uppercase tracking-widest text-center">
-            El motor Source 2 ya está cargando tu mapa en segundo plano.
+            El motor Source 2 ya estÃ¡ cargando tu mapa en segundo plano.
           </p>
         </div>
       )}
@@ -232,9 +232,9 @@ export default React.memo(function PracticeMissionsSection({
                 MAPA DE PRACTICA &amp; MISIONES SEMANALES
               </h2>
               <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-                Entrena en tu propia sala dedicada sin interrumpir a otros jugadores. El progreso se audita en vivo desde el motor de CS2 en Miami y se actualiza automáticamente al hacer{" "}
-                <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misión al cierre de los{" "}
-                <span className="text-white font-bold">7 días</span> descuenta{" "}
+                Entrena en tu propia sala dedicada sin interrumpir a otros jugadores. El progreso se audita en vivo desde el motor de CS2 en Miami y se actualiza automÃ¡ticamente al hacer{" "}
+                <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misiÃ³n al cierre de los{" "}
+                <span className="text-white font-bold">7 dÃ­as</span> descuenta{" "}
                 <span className="text-red-400 font-bold">-13 ELO</span>.
               </p>
             </div>
@@ -242,7 +242,7 @@ export default React.memo(function PracticeMissionsSection({
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               {isSelectedClaimed ? (
                 <div className="px-5 py-3 rounded-sm bg-[#111318] border border-[#a4d007]/60 text-xs font-mono font-bold text-[#c7d5e0] text-center">
-                  ⏳ SE VOLVERÁ A ACTIVAR EN:{" "}
+                  â³ SE VOLVERÃ A ACTIVAR EN:{" "}
                   <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
                 </div>
               ) : isSelectedCompleted && selectedMission ? (
@@ -262,7 +262,7 @@ export default React.memo(function PracticeMissionsSection({
                 >
                   {launchingMode === selectedPractice.id
                     ? "CONECTANDO..."
-                    : `> MISIÓN SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
+                    : `> MISIÃ“N SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
                 </button>
               )}
             </div>
@@ -270,7 +270,7 @@ export default React.memo(function PracticeMissionsSection({
 
           {serverBusyAlert && (
             <div className="mt-4 p-3.5 rounded-sm bg-red-950/90 border border-red-500 text-xs text-red-200 font-bold flex items-center justify-between">
-              <span>⚠️ {serverBusyAlert}</span>
+              <span>âš ï¸ {serverBusyAlert}</span>
               <button
                 type="button"
                 onClick={() => setServerBusyAlert(null)}
@@ -327,7 +327,7 @@ export default React.memo(function PracticeMissionsSection({
                   CIERRE EN: {formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)
                 </span>
                 <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-sm bg-red-950/70 border border-red-500/50 text-red-300">
-                  INCUMPLIMIENTO: -13 ELO POR MISIÓN
+                  INCUMPLIMIENTO: -13 ELO POR MISIÃ“N
                 </span>
               </div>
             </div>
@@ -377,7 +377,7 @@ export default React.memo(function PracticeMissionsSection({
                   >
                     <div>
                       <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                        <span className="text-[#66c0f4]">MISIÓN SEMANAL</span>
+                        <span className="text-[#66c0f4]">MISIÃ“N SEMANAL</span>
                         {m.claimed && completed ? (
                           <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
                         ) : m.penalized ? (
@@ -426,7 +426,7 @@ export default React.memo(function PracticeMissionsSection({
                         >
                           {launchingMode === m.modeId
                             ? "Conectando..."
-                            : "> Misión Semanal"}
+                            : "> MisiÃ³n Semanal"}
                         </button>
                       )}
 
@@ -442,7 +442,7 @@ export default React.memo(function PracticeMissionsSection({
 
                       {completed && m.claimed && (
                         <div className="w-full text-center py-1.5 px-2 rounded-sm bg-[#111318] border border-[#2a475e] text-[11px] font-mono font-bold text-[#8f98a0]">
-                          ⏳ Se volverá a activar en:{" "}
+                          â³ Se volverÃ¡ a activar en:{" "}
                           <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
                         </div>
                       )}
