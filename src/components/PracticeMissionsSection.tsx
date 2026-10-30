@@ -141,8 +141,8 @@ export default React.memo(function PracticeMissionsSection({
     }
 
     const assignedPort = PORT_BY_MODE[modeId] || 27025;
-    const consoleCmd = `connect 207.246.79.56:${assignedPort}`;
-    const steamDirectUrl = `steam://run/730//+connect%20207.246.79.56:${assignedPort}`;
+    const consoleCmd = `connect 207.246.113.236:${assignedPort}`;
+    const steamDirectUrl = `steam://run/730//+connect%20207.246.113.236:${assignedPort}`;
 
     setLaunchingMode(modeId);
     setServerBusyAlert(null);

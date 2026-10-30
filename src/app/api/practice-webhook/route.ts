@@ -4,7 +4,7 @@ import { verifyRequestIdentity } from "@/lib/session";
 import { sendSourceRconCommand } from "@/lib/rconBridge";
 import { INITIAL_MISSIONS } from "@/lib/ranks";
 
-const ORCHESTRATOR_URL = "http://207.246.79.56:8085";
+const ORCHESTRATOR_URL = "http://207.246.113.236:8085";
 
 const WORKSHOP_MAP_BY_MODE: Record<string, { workshopId: string; label: string; port: number }> = {
   aim_botz:  { workshopId: "3070244462", label: "Aim Botz (uLLeticaL)",  port: 27025 },
@@ -39,10 +39,10 @@ export async function POST(request: Request) {
           launched: target.label,
           port: orchData.port || target.port,
           waitMs: 0,
-          connectUrl: `steam://run/730//+connect%20207.246.79.56:${orchData.port || target.port}`,
+          connectUrl: `steam://run/730//+connect%20207.246.113.236:${orchData.port || target.port}`,
         });
       } catch {
-        const host = process.env.CS2_SERVER_HOST || "207.246.79.56";
+        const host = process.env.CS2_SERVER_HOST || "207.246.113.236";
         const rconPass = process.env.CS2_RCON_PASSWORD || "AimVe_Rcon_Miami_2026";
         await sendSourceRconCommand(
           host,
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
           launched: target.label,
           port: target.port,
           waitMs: 0,
-          connectUrl: `steam://run/730//+connect%20207.246.79.56:${target.port}`,
+          connectUrl: `steam://run/730//+connect%20207.246.113.236:${target.port}`,
         });
       }
     }
