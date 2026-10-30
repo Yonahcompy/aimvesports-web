@@ -954,12 +954,12 @@ export default function Home() {
             : "CALIBRACION DE 6 PARTIDAS (25-100 ELO) | MISIONES DE PRACTICA CADA 7 DIAS"}
         </div>
 
-        <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-none text-white mb-6">
-          ENTRA SOLO, VETA EL MAPA <br />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#66c0f4] via-[#c7d5e0] to-[#FF5500]">
-            Y COMPITE EN PREMIER LATAM
-          </span>
-        </h1>
+        <h1 className="text-4xl md:text-6xl font-black tracking-tight leading-none text-white">
+            EL CIRCUITO DE CS2 DE
+            <span className="block bg-gradient-to-r from-[#66c0f4] via-white to-[#ff6b00] bg-clip-text text-transparent mt-2">
+              VENEZUELA Y LATAM
+            </span>
+          </h1>
 
         <p className="max-w-2xl mx-auto text-[#8f98a0] text-lg md:text-xl mb-10 leading-relaxed">
           Completa tus <span className="text-white font-semibold">6 partidas de calibracion</span> (25 a 100 ELO inicial), cumple tus{" "}
