@@ -37,6 +37,7 @@ export default React.memo(function PracticeMissionsSection({
   const [weekSecondsLeft, setWeekSecondsLeft] = useState<number>(7 * 86400);
   const [launchingMode, setLaunchingMode] = useState<string | null>(null);
   const [serverBusyAlert, setServerBusyAlert] = useState<string | null>(null);
+  const [isConnectingOverlay, setIsConnectingOverlay] = useState<boolean>(false);
   const [roomStatus, setRoomStatus] = useState<{
     prime_time_5v5: boolean;
     busy_rooms: number;
@@ -141,30 +142,36 @@ export default React.memo(function PracticeMissionsSection({
 
     const assignedPort = PORT_BY_MODE[modeId] || 27025;
     const consoleCmd = `connect 207.246.79.56:${assignedPort}`;
-    const steamOverlayUrl = `steam://run/730//+connect%20207.246.79.56:${assignedPort}`;
+    // Usamos steam://connect para obligar al OS a buscar la ventana de Steam/CS2
+    const steamOverlayUrl = `steam://connect/207.246.79.56:${assignedPort}`;
 
     setLaunchingMode(modeId);
     setServerBusyAlert(null);
+    setIsConnectingOverlay(true);
 
     try {
       navigator.clipboard.writeText(consoleCmd);
     } catch {}
 
     setMissionBanner(
-      `Abriendo CS2 en Sala Miami (:${assignedPort}) — ${modeName}. Comando "${consoleCmd}" copiado al portapapeles (Consola ~ -> Ctrl+V si CS2 ya está abierto).`
+      `Conectando a Sala Miami (:${assignedPort}) — ${modeName}. Comando "${consoleCmd}" copiado al portapapeles.`
     );
 
+    // Notificar al orquestador en segundo plano
     fetch("/api/practice-webhook", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "launch", mode_id: modeId }),
     }).catch(() => {});
 
+    // Disparo nativo de Steam
     window.location.href = steamOverlayUrl;
 
+    // Quitamos la pantalla negra gigante a los 4.5 segundos
     setTimeout(() => {
       setLaunchingMode(null);
-    }, 1500);
+      setIsConnectingOverlay(false);
+    }, 4500);
   };
 
   const allRoomsBusy = roomStatus.busy_rooms >= roomStatus.max_rooms;
@@ -175,258 +182,278 @@ export default React.memo(function PracticeMissionsSection({
   const isSelectedClaimed = Boolean(isSelectedCompleted && selectedMission?.claimed);
 
   return (
-    <section id="practica" className="mt-20 text-left">
-      <div className="p-6 rounded-sm bg-gradient-to-r from-[#1b2838] via-[#171a21] to-[#1b2838] border border-[#66c0f4]/50 shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-1">
-              <span className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#a4d007]">
-                <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-ping"></span>
-                WORKSHOP TRAINING HUB MIAMI | 3 SALAS DEDICADAS
-              </span>
-              <span
-                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm border ${
-                  allRoomsBusy
-                    ? "bg-red-950/80 border-red-500 text-red-300"
-                    : "bg-[#111318] border-[#a4d007]/60 text-[#a4d007]"
-                }`}
-              >
-                {allRoomsBusy
-                  ? `SALAS EN USO (${roomStatus.busy_rooms}/${roomStatus.max_rooms})`
-                  : `SALAS DISPONIBLES (${roomStatus.busy_rooms}/${roomStatus.max_rooms} EN USO)`}
-              </span>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/40 text-[#66c0f4]">
-                {roomStatus.prime_time_5v5
-                  ? "HORARIO PRIME TIME 5v5 ACTIVO (:27025 / :27035 / :27016)"
-                  : "3 SALAS ACTIVAS SIMULTANEAS (:27025 | :27035 | :27016)"}
-              </span>
-            </div>
-
-            <h2 className="text-2xl md:text-3xl font-black text-white">
-              MAPA DE PRACTICA &amp; MISIONES SEMANALES
-            </h2>
-            <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-              Entrena en tu propia sala dedicada sin interrumpir a otros jugadores. El progreso se audita en vivo desde el motor de CS2 en Miami y se actualiza automáticamente al hacer{" "}
-              <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misión al cierre de los{" "}
-              <span className="text-white font-bold">7 días</span> descuenta{" "}
-              <span className="text-red-400 font-bold">-13 ELO</span>.
-            </p>
+    <>
+      {/* OVERLAY GIGANTE PARA AVISAR AL USUARIO QUE VUELVA AL JUEGO */}
+      {isConnectingOverlay && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#000000eb] backdrop-blur-sm transition-all duration-300">
+          <div className="animate-bounce mb-6">
+            <span className="text-8xl drop-shadow-[0_0_15px_rgba(102,192,244,0.8)]">🎮</span>
           </div>
+          <h2 className="text-4xl md:text-6xl font-black text-[#a4d007] mb-4 tracking-wider text-center drop-shadow-md">
+            CONECTANDO A LA SALA...
+          </h2>
+          <p className="text-xl md:text-3xl text-white font-bold text-center animate-pulse">
+            Maximiza tu juego ahora (Presiona <span className="text-[#66c0f4]">ALT + TAB</span>)
+          </p>
+          <p className="text-[#8f98a0] mt-8 text-sm md:text-base font-mono uppercase tracking-widest text-center">
+            El motor Source 2 ya está cargando tu mapa en segundo plano.
+          </p>
+        </div>
+      )}
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            {isSelectedClaimed ? (
-              <div className="px-5 py-3 rounded-sm bg-[#111318] border border-[#a4d007]/60 text-xs font-mono font-bold text-[#c7d5e0] text-center">
-                ⏳ SE VOLVERÁ A ACTIVAR EN:{" "}
-                <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
+      <section id="practica" className="mt-20 text-left">
+        <div className="p-6 rounded-sm bg-gradient-to-r from-[#1b2838] via-[#171a21] to-[#1b2838] border border-[#66c0f4]/50 shadow-xl">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div>
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <span className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#a4d007]">
+                  <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-ping"></span>
+                  WORKSHOP TRAINING HUB MIAMI | 3 SALAS DEDICADAS
+                </span>
+                <span
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm border ${
+                    allRoomsBusy
+                      ? "bg-red-950/80 border-red-500 text-red-300"
+                      : "bg-[#111318] border-[#a4d007]/60 text-[#a4d007]"
+                  }`}
+                >
+                  {allRoomsBusy
+                    ? `SALAS EN USO (${roomStatus.busy_rooms}/${roomStatus.max_rooms})`
+                    : `SALAS DISPONIBLES (${roomStatus.busy_rooms}/${roomStatus.max_rooms} EN USO)`}
+                </span>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/40 text-[#66c0f4]">
+                  {roomStatus.prime_time_5v5
+                    ? "HORARIO PRIME TIME 5v5 ACTIVO (:27025 / :27035 / :27016)"
+                    : "3 SALAS ACTIVAS SIMULTANEAS (:27025 | :27035 | :27016)"}
+                </span>
               </div>
-            ) : isSelectedCompleted && selectedMission ? (
-              <button
-                type="button"
-                onClick={() => handleClaimAndSync(selectedMission.id)}
-                className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-[#a4d007] hover:brightness-110 text-[#171a21]"
-              >
-                RECLAMAR +{selectedMission.eloReward} ELO Y BONO
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={Boolean(launchingMode)}
-                onClick={() => handleLaunchWorkshopServer(selectedPractice.id, selectedPractice.name)}
-                className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white shadow-[#66c0f4]/25"
-              >
-                {launchingMode === selectedPractice.id
-                  ? "ABRIENDO CS2..."
-                  : `> MISIÓN SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
-              </button>
-            )}
-          </div>
-        </div>
 
-        {serverBusyAlert && (
-          <div className="mt-4 p-3.5 rounded-sm bg-red-950/90 border border-red-500 text-xs text-red-200 font-bold flex items-center justify-between">
-            <span>⚠️ {serverBusyAlert}</span>
-            <button
-              type="button"
-              onClick={() => setServerBusyAlert(null)}
-              className="text-red-300 hover:text-white font-black ml-4 cursor-pointer"
-            >
-              X
-            </button>
-          </div>
-        )}
+              <h2 className="text-2xl md:text-3xl font-black text-white">
+                MAPA DE PRACTICA &amp; MISIONES SEMANALES
+              </h2>
+              <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
+                Entrena en tu propia sala dedicada sin interrumpir a otros jugadores. El progreso se audita en vivo desde el motor de CS2 en Miami y se actualiza automáticamente al hacer{" "}
+                <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misión al cierre de los{" "}
+                <span className="text-white font-bold">7 días</span> descuenta{" "}
+                <span className="text-red-400 font-bold">-13 ELO</span>.
+              </p>
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5 pt-5 border-t border-[#2a475e]/60">
-          {PRACTICE_MODES.map((mode) => {
-            const active = selectedPractice.id === mode.id;
-            const mPort = PORT_BY_MODE[mode.id] || 27025;
-            const modeMission = getNormalizedMission(mode.id);
-            const modeDone = Boolean(modeMission && modeMission.current >= modeMission.goal);
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setSelectedPractice(mode)}
-                className={`p-4 rounded-sm border text-left transition cursor-pointer ${
-                  active
-                    ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-md shadow-[#66c0f4]/20"
-                    : "bg-[#171a21]/80 border-[#2a475e] hover:border-[#66c0f4]/50"
-                }`}
-              >
-                <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                  <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
-                    SALA MIAMI :{mPort}
-                  </span>
-                  {modeDone ? (
-                    <span className="text-[#a4d007]">
-                      Reactiva en {formatWeekRemaining(weekSecondsLeft)}
-                    </span>
-                  ) : (
-                    <span className="text-[#a4d007]">Sala Activa</span>
-                  )}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              {isSelectedClaimed ? (
+                <div className="px-5 py-3 rounded-sm bg-[#111318] border border-[#a4d007]/60 text-xs font-mono font-bold text-[#c7d5e0] text-center">
+                  ⏳ SE VOLVERÁ A ACTIVAR EN:{" "}
+                  <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
                 </div>
-                <div className="text-sm font-black text-white">{mode.name}</div>
-                <p className="text-[11px] text-[#8f98a0] mt-1">{mode.desc}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 pt-6 border-t border-[#2a475e]">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="text-xs font-black uppercase tracking-wider text-white">
-                MISIONES SEMANALES DE ENTRENAMIENTO (AUDITORIA EN TIEMPO REAL)
-              </span>
-              <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/50 text-[#66c0f4]">
-                CIERRE EN: {formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)
-              </span>
-              <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-sm bg-red-950/70 border border-red-500/50 text-red-300">
-                INCUMPLIMIENTO: -13 ELO POR MISIÓN
-              </span>
+              ) : isSelectedCompleted && selectedMission ? (
+                <button
+                  type="button"
+                  onClick={() => handleClaimAndSync(selectedMission.id)}
+                  className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-[#a4d007] hover:brightness-110 text-[#171a21]"
+                >
+                  RECLAMAR +{selectedMission.eloReward} ELO Y BONO
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={Boolean(launchingMode)}
+                  onClick={() => handleLaunchWorkshopServer(selectedPractice.id, selectedPractice.name)}
+                  className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-gradient-to-r from-[#66c0f4] to-[#1a44c2] hover:brightness-110 text-white shadow-[#66c0f4]/25"
+                >
+                  {launchingMode === selectedPractice.id
+                    ? "CONECTANDO..."
+                    : `> MISIÓN SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
+                </button>
+              )}
             </div>
           </div>
 
-          {missionBanner && (
-            <div className="mb-4 p-3 rounded-sm bg-[#111318] border border-[#a4d007] text-xs text-[#a4d007] font-bold flex items-center justify-between">
-              <span>{missionBanner}</span>
+          {serverBusyAlert && (
+            <div className="mt-4 p-3.5 rounded-sm bg-red-950/90 border border-red-500 text-xs text-red-200 font-bold flex items-center justify-between">
+              <span>⚠️ {serverBusyAlert}</span>
               <button
                 type="button"
-                onClick={() => setMissionBanner(null)}
-                className="text-[#8f98a0] hover:text-white font-black ml-4 cursor-pointer"
+                onClick={() => setServerBusyAlert(null)}
+                className="text-red-300 hover:text-white font-black ml-4 cursor-pointer"
               >
                 X
               </button>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {syncedMissions.map((rawMission) => {
-              const template = INITIAL_MISSIONS.find(
-                (t) => t.id === rawMission.id || t.modeId === rawMission.modeId
-              );
-              const m = template
-                ? {
-                    ...rawMission,
-                    title: template.title,
-                    targetText: template.targetText,
-                    goal: template.goal,
-                  }
-                : rawMission;
-
-              const pct = Math.min(100, Math.round((m.current / m.goal) * 100));
-              const completed = m.current >= m.goal;
-
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5 pt-5 border-t border-[#2a475e]/60">
+            {PRACTICE_MODES.map((mode) => {
+              const active = selectedPractice.id === mode.id;
+              const mPort = PORT_BY_MODE[mode.id] || 27025;
+              const modeMission = getNormalizedMission(mode.id);
+              const modeDone = Boolean(modeMission && modeMission.current >= modeMission.goal);
               return (
-                <div
-                  key={m.id}
-                  className={`p-4 rounded-sm border flex flex-col justify-between ${
-                    m.claimed
-                      ? "bg-[#111318]/90 border-[#a4d007]/60"
-                      : m.penalized
-                      ? "bg-red-950/25 border-red-500/60"
-                      : completed
-                      ? "bg-[#171a21] border-[#a4d007]"
-                      : "bg-[#171a21] border-[#2a475e]"
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setSelectedPractice(mode)}
+                  className={`p-4 rounded-sm border text-left transition cursor-pointer ${
+                    active
+                      ? "bg-[#66c0f4]/15 border-[#66c0f4] shadow-md shadow-[#66c0f4]/20"
+                      : "bg-[#171a21]/80 border-[#2a475e] hover:border-[#66c0f4]/50"
                   }`}
                 >
-                  <div>
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                      <span className="text-[#66c0f4]">MISIÓN SEMANAL</span>
-                      {m.claimed && completed ? (
-                        <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
-                      ) : m.penalized ? (
-                        <span className="text-red-400">VENCIDA (-{m.eloPenalty} ELO)</span>
-                      ) : completed ? (
-                        <span className="text-[#a4d007] animate-pulse">LISTA PARA RECLAMAR</span>
-                      ) : (
-                        <span className="text-red-300">SI NO CUMPLES: -{m.eloPenalty} ELO</span>
-                      )}
-                    </div>
-
-                    <div className="text-sm font-black text-white">{m.title}</div>
-                    <p className="text-[11px] text-[#8f98a0] mt-1">{m.targetText}</p>
-
-                    <div className="mt-3">
-                      <div className="flex items-center justify-between text-[11px] font-mono font-bold mb-1">
-                        <span className="text-[#c7d5e0]">
-                          Progreso Real: {m.current} / {m.goal}
-                        </span>
-                        <span className={completed ? "text-[#a4d007]" : "text-[#66c0f4]"}>
-                          {pct}%
-                        </span>
-                      </div>
-                      <div className="w-full h-2 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/60">
-                        <div
-                          className={`h-full transition-all duration-500 ${
-                            completed ? "bg-[#a4d007]" : "bg-[#66c0f4]"
-                          }`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-2.5 text-[10px] font-bold text-[#a4d007]">
-                      Recompensa: {m.bonusLabel}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-[#2a475e]/40 flex flex-col gap-2">
-                    {!completed && (
-                      <button
-                        type="button"
-                        disabled={Boolean(launchingMode)}
-                        onClick={() => handleLaunchWorkshopServer(m.modeId, m.title)}
-                        className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition cursor-pointer"
-                      >
-                        {launchingMode === m.modeId
-                          ? "Abriendo CS2..."
-                          : "> Misión Semanal"}
-                      </button>
-                    )}
-
-                    {completed && !m.claimed && (
-                      <button
-                        type="button"
-                        onClick={() => handleClaimAndSync(m.id)}
-                        className="w-full py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] text-[11px] font-black uppercase transition cursor-pointer"
-                      >
-                        Reclamar +{m.eloReward} ELO y Bono
-                      </button>
-                    )}
-
-                    {completed && m.claimed && (
-                      <div className="w-full text-center py-1.5 px-2 rounded-sm bg-[#111318] border border-[#2a475e] text-[11px] font-mono font-bold text-[#8f98a0]">
-                        ⏳ Se volverá a activar en:{" "}
-                        <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
-                      </div>
+                  <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
+                    <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
+                      SALA MIAMI :{mPort}
+                    </span>
+                    {modeDone ? (
+                      <span className="text-[#a4d007]">
+                        Reactiva en {formatWeekRemaining(weekSecondsLeft)}
+                      </span>
+                    ) : (
+                      <span className="text-[#a4d007]">Sala Activa</span>
                     )}
                   </div>
-                </div>
+                  <div className="text-sm font-black text-white">{mode.name}</div>
+                  <p className="text-[11px] text-[#8f98a0] mt-1">{mode.desc}</p>
+                </button>
               );
             })}
           </div>
+
+          <div className="mt-6 pt-6 border-t border-[#2a475e]">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-xs font-black uppercase tracking-wider text-white">
+                  MISIONES SEMANALES DE ENTRENAMIENTO (AUDITORIA EN TIEMPO REAL)
+                </span>
+                <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/50 text-[#66c0f4]">
+                  CIERRE EN: {formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)
+                </span>
+                <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-sm bg-red-950/70 border border-red-500/50 text-red-300">
+                  INCUMPLIMIENTO: -13 ELO POR MISIÓN
+                </span>
+              </div>
+            </div>
+
+            {missionBanner && (
+              <div className="mb-4 p-3 rounded-sm bg-[#111318] border border-[#a4d007] text-xs text-[#a4d007] font-bold flex items-center justify-between">
+                <span>{missionBanner}</span>
+                <button
+                  type="button"
+                  onClick={() => setMissionBanner(null)}
+                  className="text-[#8f98a0] hover:text-white font-black ml-4 cursor-pointer"
+                >
+                  X
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {syncedMissions.map((rawMission) => {
+                const template = INITIAL_MISSIONS.find(
+                  (t) => t.id === rawMission.id || t.modeId === rawMission.modeId
+                );
+                const m = template
+                  ? {
+                      ...rawMission,
+                      title: template.title,
+                      targetText: template.targetText,
+                      goal: template.goal,
+                    }
+                  : rawMission;
+
+                const pct = Math.min(100, Math.round((m.current / m.goal) * 100));
+                const completed = m.current >= m.goal;
+
+                return (
+                  <div
+                    key={m.id}
+                    className={`p-4 rounded-sm border flex flex-col justify-between ${
+                      m.claimed
+                        ? "bg-[#111318]/90 border-[#a4d007]/60"
+                        : m.penalized
+                        ? "bg-red-950/25 border-red-500/60"
+                        : completed
+                        ? "bg-[#171a21] border-[#a4d007]"
+                        : "bg-[#171a21] border-[#2a475e]"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
+                        <span className="text-[#66c0f4]">MISIÓN SEMANAL</span>
+                        {m.claimed && completed ? (
+                          <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
+                        ) : m.penalized ? (
+                          <span className="text-red-400">VENCIDA (-{m.eloPenalty} ELO)</span>
+                        ) : completed ? (
+                          <span className="text-[#a4d007] animate-pulse">LISTA PARA RECLAMAR</span>
+                        ) : (
+                          <span className="text-red-300">SI NO CUMPLES: -{m.eloPenalty} ELO</span>
+                        )}
+                      </div>
+
+                      <div className="text-sm font-black text-white">{m.title}</div>
+                      <p className="text-[11px] text-[#8f98a0] mt-1">{m.targetText}</p>
+
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-[11px] font-mono font-bold mb-1">
+                          <span className="text-[#c7d5e0]">
+                            Progreso Real: {m.current} / {m.goal}
+                          </span>
+                          <span className={completed ? "text-[#a4d007]" : "text-[#66c0f4]"}>
+                            {pct}%
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/60">
+                          <div
+                            className={`h-full transition-all duration-500 ${
+                              completed ? "bg-[#a4d007]" : "bg-[#66c0f4]"
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5 text-[10px] font-bold text-[#a4d007]">
+                        Recompensa: {m.bonusLabel}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-[#2a475e]/40 flex flex-col gap-2">
+                      {!completed && (
+                        <button
+                          type="button"
+                          disabled={Boolean(launchingMode)}
+                          onClick={() => handleLaunchWorkshopServer(m.modeId, m.title)}
+                          className="w-full text-center py-1.5 rounded-sm bg-[#1b2838] hover:bg-[#66c0f4] hover:text-[#171a21] text-[#66c0f4] border border-[#66c0f4]/50 text-[11px] font-bold uppercase transition cursor-pointer"
+                        >
+                          {launchingMode === m.modeId
+                            ? "Conectando..."
+                            : "> Misión Semanal"}
+                        </button>
+                      )}
+
+                      {completed && !m.claimed && (
+                        <button
+                          type="button"
+                          onClick={() => handleClaimAndSync(m.id)}
+                          className="w-full py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] text-[11px] font-black uppercase transition cursor-pointer"
+                        >
+                          Reclamar +{m.eloReward} ELO y Bono
+                        </button>
+                      )}
+
+                      {completed && m.claimed && (
+                        <div className="w-full text-center py-1.5 px-2 rounded-sm bg-[#111318] border border-[#2a475e] text-[11px] font-mono font-bold text-[#8f98a0]">
+                          ⏳ Se volverá a activar en:{" "}
+                          <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 });
