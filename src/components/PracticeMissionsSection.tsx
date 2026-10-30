@@ -135,15 +135,14 @@ export default React.memo(function PracticeMissionsSection({
     const targetMission = getNormalizedMission(modeId);
     if (targetMission && targetMission.current >= targetMission.goal) {
       setMissionBanner(
-        `Ya completaste ${modeName} esta semana. El mapa se volverÃ¡ a activar en ${formatWeekRemaining(weekSecondsLeft)}.`
+        `Ya completaste ${modeName} esta semana. El mapa se volver\u00E1 a activar en ${formatWeekRemaining(weekSecondsLeft)}.`
       );
       return;
     }
 
     const assignedPort = PORT_BY_MODE[modeId] || 27025;
     const consoleCmd = `connect 207.246.79.56:${assignedPort}`;
-    // Usamos steam://connect para obligar al OS a buscar la ventana de Steam/CS2
-    const steamOverlayUrl = `steam://connect/207.246.79.56:${assignedPort}`;
+    const steamDirectUrl = `steam://run/730//+connect%20207.246.79.56:${assignedPort}`;
 
     setLaunchingMode(modeId);
     setServerBusyAlert(null);
@@ -154,20 +153,17 @@ export default React.memo(function PracticeMissionsSection({
     } catch {}
 
     setMissionBanner(
-      `Conectando a Sala Miami (:${assignedPort}) â€” ${modeName}. Comando "${consoleCmd}" copiado al portapapeles.`
+      `Conectando a Sala Miami (:${assignedPort}) - ${modeName}. Comando "${consoleCmd}" copiado al portapapeles.`
     );
 
-    // Notificar al orquestador en segundo plano
     fetch("/api/practice-webhook", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "launch", mode_id: modeId }),
     }).catch(() => {});
 
-    // Disparo nativo de Steam
-    window.location.href = steamOverlayUrl;
+    window.location.href = steamDirectUrl;
 
-    // Quitamos la pantalla negra gigante a los 4.5 segundos
     setTimeout(() => {
       setLaunchingMode(null);
       setIsConnectingOverlay(false);
@@ -183,20 +179,21 @@ export default React.memo(function PracticeMissionsSection({
 
   return (
     <>
-      {/* OVERLAY GIGANTE PARA AVISAR AL USUARIO QUE VUELVA AL JUEGO */}
       {isConnectingOverlay && (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#000000eb] backdrop-blur-sm transition-all duration-300">
           <div className="animate-bounce mb-6">
-            <span className="text-8xl drop-shadow-[0_0_15px_rgba(102,192,244,0.8)]">🎮</span>
+            <span className="text-8xl drop-shadow-[0_0_15px_rgba(102,192,244,0.8)]">
+              {"\uD83C\uDFAE"}
+            </span>
           </div>
           <h2 className="text-4xl md:text-6xl font-black text-[#a4d007] mb-4 tracking-wider text-center drop-shadow-md">
-            CONECTANDO A LA SALA...
+            {"CONECTANDO A LA SALA..."}
           </h2>
           <p className="text-xl md:text-3xl text-white font-bold text-center animate-pulse">
-            Maximiza tu juego ahora
+            {"Maximiza tu juego ahora"}
           </p>
           <p className="text-[#8f98a0] mt-8 text-sm md:text-base font-mono uppercase tracking-widest text-center">
-            El motor Source 2 ya estÃ¡ cargando tu mapa en segundo plano.
+            {"EL MOTOR SOURCE 2 YA EST\u00C1 CARGANDO TU MAPA EN SEGUNDO PLANO."}
           </p>
         </div>
       )}
@@ -208,7 +205,7 @@ export default React.memo(function PracticeMissionsSection({
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#a4d007]">
                   <span className="w-2 h-2 rounded-full bg-[#a4d007] animate-ping"></span>
-                  WORKSHOP TRAINING HUB MIAMI | 3 SALAS DEDICADAS
+                  {"WORKSHOP TRAINING HUB MIAMI | 3 SALAS DEDICADAS"}
                 </span>
                 <span
                   className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm border ${
@@ -229,20 +226,23 @@ export default React.memo(function PracticeMissionsSection({
               </div>
 
               <h2 className="text-2xl md:text-3xl font-black text-white">
-                MAPA DE PRACTICA &amp; MISIONES SEMANALES
+                {"MAPA DE PRACTICA & MISIONES SEMANALES"}
               </h2>
               <p className="text-xs text-[#8f98a0] mt-1 max-w-2xl">
-                Entrena en tu propia sala dedicada sin interrumpir a otros jugadores. El progreso se audita en vivo desde el motor de CS2 en Miami y se actualiza automÃ¡ticamente al hacer{" "}
-                <span className="text-white font-bold">ALT+TAB</span>. Incumplir una misiÃ³n al cierre de los{" "}
-                <span className="text-white font-bold">7 dÃ­as</span> descuenta{" "}
-                <span className="text-red-400 font-bold">-13 ELO</span>.
+                {"Entrena en tu propia sala dedicada sin interrumpir a otros jugadores. El progreso se audita en vivo desde el motor de CS2 en Miami y se actualiza autom\u00E1ticamente al hacer "}
+                <span className="text-white font-bold">{"ALT+TAB"}</span>
+                {". Incumplir una misi\u00F3n al cierre de los "}
+                <span className="text-white font-bold">{"7 d\u00EDas"}</span>
+                {" descuenta "}
+                <span className="text-red-400 font-bold">{"-13 ELO"}</span>
+                {"."}
               </p>
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               {isSelectedClaimed ? (
                 <div className="px-5 py-3 rounded-sm bg-[#111318] border border-[#a4d007]/60 text-xs font-mono font-bold text-[#c7d5e0] text-center">
-                  â³ SE VOLVERÃ A ACTIVAR EN:{" "}
+                  {"\u23F3 SE VOLVER\u00C1 A ACTIVAR EN: "}
                   <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
                 </div>
               ) : isSelectedCompleted && selectedMission ? (
@@ -251,7 +251,7 @@ export default React.memo(function PracticeMissionsSection({
                   onClick={() => handleClaimAndSync(selectedMission.id)}
                   className="px-6 py-3.5 rounded-sm font-black text-xs uppercase tracking-wider text-center transition shadow-lg cursor-pointer bg-[#a4d007] hover:brightness-110 text-[#171a21]"
                 >
-                  RECLAMAR +{selectedMission.eloReward} ELO Y BONO
+                  {`RECLAMAR +${selectedMission.eloReward} ELO Y BONO`}
                 </button>
               ) : (
                 <button
@@ -262,7 +262,7 @@ export default React.memo(function PracticeMissionsSection({
                 >
                   {launchingMode === selectedPractice.id
                     ? "CONECTANDO..."
-                    : `> MISIÃ“N SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
+                    : `> MISI\u00D3N SEMANAL (${selectedPractice.name.split(" ")[0].toUpperCase()})`}
                 </button>
               )}
             </div>
@@ -270,13 +270,13 @@ export default React.memo(function PracticeMissionsSection({
 
           {serverBusyAlert && (
             <div className="mt-4 p-3.5 rounded-sm bg-red-950/90 border border-red-500 text-xs text-red-200 font-bold flex items-center justify-between">
-              <span>âš ï¸ {serverBusyAlert}</span>
+              <span>{`\u26A0\uFE0F ${serverBusyAlert}`}</span>
               <button
                 type="button"
                 onClick={() => setServerBusyAlert(null)}
                 className="text-red-300 hover:text-white font-black ml-4 cursor-pointer"
               >
-                X
+                {"X"}
               </button>
             </div>
           )}
@@ -300,14 +300,14 @@ export default React.memo(function PracticeMissionsSection({
                 >
                   <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
                     <span className={active ? "text-[#66c0f4]" : "text-[#8f98a0]"}>
-                      SALA MIAMI :{mPort}
+                      {`SALA MIAMI :${mPort}`}
                     </span>
                     {modeDone ? (
                       <span className="text-[#a4d007]">
-                        Reactiva en {formatWeekRemaining(weekSecondsLeft)}
+                        {`Reactiva en ${formatWeekRemaining(weekSecondsLeft)}`}
                       </span>
                     ) : (
-                      <span className="text-[#a4d007]">Sala Activa</span>
+                      <span className="text-[#a4d007]">{"Sala Activa"}</span>
                     )}
                   </div>
                   <div className="text-sm font-black text-white">{mode.name}</div>
@@ -321,13 +321,13 @@ export default React.memo(function PracticeMissionsSection({
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="text-xs font-black uppercase tracking-wider text-white">
-                  MISIONES SEMANALES DE ENTRENAMIENTO (AUDITORIA EN TIEMPO REAL)
+                  {"MISIONES SEMANALES DE ENTRENAMIENTO (AUDITORIA EN TIEMPO REAL)"}
                 </span>
                 <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-sm bg-[#111318] border border-[#66c0f4]/50 text-[#66c0f4]">
-                  CIERRE EN: {formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)
+                  {`CIERRE EN: ${formatWeekRemaining(weekSecondsLeft)} (PLAZO 7 DIAS)`}
                 </span>
                 <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-sm bg-red-950/70 border border-red-500/50 text-red-300">
-                  INCUMPLIMIENTO: -13 ELO POR MISIÃ“N
+                  {"INCUMPLIMIENTO: -13 ELO POR MISI\u00D3N"}
                 </span>
               </div>
             </div>
@@ -340,7 +340,7 @@ export default React.memo(function PracticeMissionsSection({
                   onClick={() => setMissionBanner(null)}
                   className="text-[#8f98a0] hover:text-white font-black ml-4 cursor-pointer"
                 >
-                  X
+                  {"X"}
                 </button>
               </div>
             )}
@@ -377,15 +377,15 @@ export default React.memo(function PracticeMissionsSection({
                   >
                     <div>
                       <div className="flex items-center justify-between text-[10px] font-black uppercase mb-1">
-                        <span className="text-[#66c0f4]">MISIÃ“N SEMANAL</span>
+                        <span className="text-[#66c0f4]">{"MISI\u00D3N SEMANAL"}</span>
                         {m.claimed && completed ? (
-                          <span className="text-[#a4d007]">RECLAMADA (+{m.eloReward} ELO)</span>
+                          <span className="text-[#a4d007]">{`RECLAMADA (+${m.eloReward} ELO)`}</span>
                         ) : m.penalized ? (
-                          <span className="text-red-400">VENCIDA (-{m.eloPenalty} ELO)</span>
+                          <span className="text-red-400">{`VENCIDA (-${m.eloPenalty} ELO)`}</span>
                         ) : completed ? (
-                          <span className="text-[#a4d007] animate-pulse">LISTA PARA RECLAMAR</span>
+                          <span className="text-[#a4d007] animate-pulse">{"LISTA PARA RECLAMAR"}</span>
                         ) : (
-                          <span className="text-red-300">SI NO CUMPLES: -{m.eloPenalty} ELO</span>
+                          <span className="text-red-300">{`SI NO CUMPLES: -${m.eloPenalty} ELO`}</span>
                         )}
                       </div>
 
@@ -395,10 +395,10 @@ export default React.memo(function PracticeMissionsSection({
                       <div className="mt-3">
                         <div className="flex items-center justify-between text-[11px] font-mono font-bold mb-1">
                           <span className="text-[#c7d5e0]">
-                            Progreso Real: {m.current} / {m.goal}
+                            {`Progreso Real: ${m.current} / ${m.goal}`}
                           </span>
                           <span className={completed ? "text-[#a4d007]" : "text-[#66c0f4]"}>
-                            {pct}%
+                            {`${pct}%`}
                           </span>
                         </div>
                         <div className="w-full h-2 bg-[#111318] rounded-sm overflow-hidden border border-[#2a475e]/60">
@@ -412,7 +412,7 @@ export default React.memo(function PracticeMissionsSection({
                       </div>
 
                       <div className="mt-2.5 text-[10px] font-bold text-[#a4d007]">
-                        Recompensa: {m.bonusLabel}
+                        {`Recompensa: ${m.bonusLabel}`}
                       </div>
                     </div>
 
@@ -426,7 +426,7 @@ export default React.memo(function PracticeMissionsSection({
                         >
                           {launchingMode === m.modeId
                             ? "Conectando..."
-                            : "> MisiÃ³n Semanal"}
+                            : "> Misi\u00F3n Semanal"}
                         </button>
                       )}
 
@@ -436,13 +436,13 @@ export default React.memo(function PracticeMissionsSection({
                           onClick={() => handleClaimAndSync(m.id)}
                           className="w-full py-1.5 rounded-sm bg-[#a4d007] hover:brightness-110 text-[#171a21] text-[11px] font-black uppercase transition cursor-pointer"
                         >
-                          Reclamar +{m.eloReward} ELO y Bono
+                          {`Reclamar +${m.eloReward} ELO y Bono`}
                         </button>
                       )}
 
                       {completed && m.claimed && (
                         <div className="w-full text-center py-1.5 px-2 rounded-sm bg-[#111318] border border-[#2a475e] text-[11px] font-mono font-bold text-[#8f98a0]">
-                          â³ Se volverÃ¡ a activar en:{" "}
+                          {"\u23F3 Se volver\u00E1 a activar en: "}
                           <span className="text-[#a4d007]">{formatWeekRemaining(weekSecondsLeft)}</span>
                         </div>
                       )}
