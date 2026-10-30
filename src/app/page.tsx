@@ -962,9 +962,11 @@ export default function Home() {
           </h1>
 
         <p className="mt-5 text-sm md:text-base text-[#8f98a0] max-w-2xl mx-auto leading-relaxed">
-            {"Entrena, practica y compite para ser un mejor jugador de CS2 a nivel competitivo, "}
+            {"Entrena, domina y compite para alcanzar tu m\u00E1ximo nivel en CS2. Juega con un "}
+            <span className="text-[#66c0f4] font-bold">{"ping entre 30 y 45 ms"}</span>
+            {", "}
             <span className="text-white font-semibold">{"Mapas de pr\u00E1ctica, ELO, puntos para ganar skins, rangos y m\u00E1s"}</span>
-            {", Ay\u00FAdanos a crear la mejor comunidad de CS2 competitivo en "}
+            {". Ay\u00FAdanos a crear la mejor comunidad de CS2 competitivo en "}
             <span className="text-[#a4d007] font-black">{"VENEZUELA"}</span>
             {"."}
           </p>
